@@ -36,6 +36,12 @@ type VaultScanProgress struct {
 // ScanReferences walks configured vault paths and maps image URL → note paths.
 func (s *VaultService) ScanReferences() ([]ImageRef, error) {
 	cfg := loadRuntimeConfig()
+	if cfg.COSBaseURL == "" {
+		return nil, fmt.Errorf("%w: set COS_BASE_URL in .env (see .env.example)", ErrMissingCredentials)
+	}
+	if len(cfg.VaultPaths) == 0 {
+		return nil, fmt.Errorf("no vault paths configured: set VAULT_PATHS in .env or save paths in Settings")
+	}
 	refs, err := scanVaultReferences(cfg.VaultPaths, cfg.COSBaseURL)
 	if err != nil {
 		return nil, err
@@ -46,6 +52,12 @@ func (s *VaultService) ScanReferences() ([]ImageRef, error) {
 // FindNotesUsing returns Markdown files that reference the given image URL or key.
 func (s *VaultService) FindNotesUsing(urlOrKey string) ([]string, error) {
 	cfg := loadRuntimeConfig()
+	if cfg.COSBaseURL == "" {
+		return nil, fmt.Errorf("%w: set COS_BASE_URL in .env (see .env.example)", ErrMissingCredentials)
+	}
+	if len(cfg.VaultPaths) == 0 {
+		return nil, fmt.Errorf("no vault paths configured: set VAULT_PATHS in .env or save paths in Settings")
+	}
 	matcher := newCOSURLMatcher(cfg.COSBaseURL)
 	key, ok := matcher.keyFromURLOrKey(urlOrKey)
 	if !ok {

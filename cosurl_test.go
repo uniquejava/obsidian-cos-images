@@ -7,7 +7,8 @@ import (
 )
 
 func TestExtractCOSURLs(t *testing.T) {
-	m := newCOSURLMatcher("https://example-bucket.cos.ap-testing.myqcloud.com")
+	const base = "https://example-bucket.cos.ap-testing.myqcloud.com"
+	m := newCOSURLMatcher(base)
 	content := `
 ![image.png|800](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/20260604001623801.png)
 ![|768](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/20250217115008.png)

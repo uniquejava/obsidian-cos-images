@@ -6,67 +6,63 @@ Desktop **image manager** for Obsidian notes whose images were uploaded by **Pic
 
 Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 
-**Product requirements:** `docs/REQUIREMENTS.md` (scope + acceptance). Read this file for **current code status** and how to run.
+**Product scope:** `docs/REQUIREMENTS.md`. **This file** is the current implementation / handoff status.
 
 ## Status (as of 2026-08-12)
 
-**v1 feature set is implemented** — not a skeleton.
+**v1 feature set is implemented.**
 
 | Area | Status |
 |------|--------|
-| COS list + delete | Done (`ListImages`, `DeleteImages`) |
-| Vault Markdown scan | Done (~3587 unique keys on WorkFirst backup smoke test) |
+| COS list + delete | Done |
+| Vault Markdown scan | Done |
 | Orphans + CSV/JSON export | Done |
-| Cascade unique-only delete | Done (preview then delete) |
-| Filters (size / date / unused) | Done in UI |
-| Thumbnails | Done; **default OFF**; disk cache under OS cache dir |
-| Vault path persistence | Done (`~/Library/Application Support/obsidian-cos-images/config.json` on macOS) |
+| Cascade unique-only delete | Done |
+| Filters (size / date / unused) | Done |
+| Thumbnails | Done; **default OFF**; local disk cache |
+| Config | From **`.env` only** (no account/host/path defaults in source) |
 
-`ErrNotImplemented` remains only as a leftover error var; no service method returns it anymore.
+## Secrets & local identity (important)
 
-Latest commits (newest first): thumbnail cache → polish → vault/orphans/cascade → COS list → initial skeleton.
+- **Committed code and `.env.example` must not contain** real `SecretId`/`SecretKey`, bucket/AppId, base URL, or personal absolute paths.
+- Runtime values live in **gitignored `.env`** (and optional OS user config for vault paths / UI prefs only).
+- Persisted UI settings path (macOS): `~/Library/Application Support/obsidian-cos-images/config.json` — **local only**, never commit.
+- Thumbnail cache (macOS): `~/Library/Caches/obsidian-cos-images/thumbs/`.
 
 ## Layout
 
 ```
-main.go              # window + service registration; loads .env
-models.go            # ImageObject, ImageRef, AppConfig, …
-config.go            # env + persisted settings (vault paths, showThumbnails)
-configservice.go     # GetConfig, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
-cosservice.go        # ListImages, DeleteImages
-thumbcache.go        # GetThumbnail (base64), ClearThumbnailCache; local disk cache
-cosurl.go            # COS host URL extract / key normalize
-vaultservice.go      # ScanReferences, FindNotesUsing; emits vault:scan
-cleanupservice.go    # ListOrphans, PreviewCascadeDelete, CascadeDeleteNoteImages
-export.go            # ExportOrphans (csv|json)
-frontend/src/App.tsx # tabs: Images | Orphans | Cascade | Settings
-docs/REQUIREMENTS.md # product scope
-.env.example         # COS_* and VAULT_PATHS (no secrets)
+main.go              # window + services; godotenv.Load()
+models.go
+config.go            # reads COS_* / VAULT_PATHS from env; no personal defaults
+configservice.go
+cosservice.go / thumbcache.go
+cosurl.go / vaultservice.go
+cleanupservice.go / export.go
+frontend/src/App.tsx
+docs/REQUIREMENTS.md
+.env.example         # placeholders only
 ```
 
 Module: `github.com/uniquejava/obsidian-cos-images`  
 Bundle ID: `com.cyper.obsidiancosimages`  
-Sibling reference: `../video-editor-wails` (same Wails version).
+Sibling: `../video-editor-wails`
 
 ## Run
 
 ```bash
 cd ~/code/golang-projects/obsidian-cos-images
-cp .env.example .env   # fill COS_SECRET_ID / COS_SECRET_KEY
+cp .env.example .env   # fill real values locally; never commit .env
 wails3 task dev
 ```
 
-Optional: set `VAULT_PATHS` in `.env`, or save paths in **Settings** (persisted config wins over env).
-
-Safe scan target for experiments: `~/Desktop/Obsidian-Backups/WorkFirst`.
+Required in `.env`: `COS_SECRET_ID`, `COS_SECRET_KEY`, `COS_BUCKET`, `COS_REGION`, `COS_BASE_URL`.  
+Optional: `COS_PREFIX` (defaults to `obsidian/`), `VAULT_PATHS` (or set in Settings UI).
 
 ```bash
-wails3 generate bindings   # after Go service signature changes
-wails3 build
-wails3 package
+wails3 generate bindings
+wails3 build && wails3 package
 ```
-
-CLI: `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.6`
 
 ## Network / proxy (China)
 
@@ -80,22 +76,21 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Cost note (COS traffic)
 
-- **List / delete / vault scan / export** ≈ no object download traffic.
-- **Thumbnails ON** → first fetch per key uses `imageMogr2/thumbnail/64x` (egress + possible CI fee), then **local cache**.
-- **Thumbnails default OFF.** “open” link / full image still costs egress.
-- Do **not** load thumbs via raw public `<img src=cos-url>` in the UI.
+- List / delete / vault scan / export ≈ no object download traffic.
+- Thumbnails ON → first fetch per key may egress; then local cache. Default OFF.
+- Do not load thumbs via raw public `<img src=cos-url>` in the UI.
 
 ## Hard rules
 
 1. Implement against `docs/REQUIREMENTS.md`; do not invent a second product scope.
-2. Never commit COS `SecretId` / `SecretKey` or real `.env`.
+2. Never commit secrets or real `.env`. Never reintroduce account-specific COS host/bucket/paths as source defaults.
 3. Default cascade / orphan delete must **not** remove images still referenced in any configured vault.
-4. Only treat this bucket/host as managed images; ignore other CDN URLs in Markdown.
+4. Only treat the configured COS host as managed images; ignore other CDN URLs.
 5. Prefer dry-run / preview before any COS delete.
-6. iCloud vault paths may be slow/locked; backup under `~/Desktop/Obsidian-Backups` is OK for scan tests.
+6. Prefer local/backup vault paths for destructive experiments.
 
 ## Next session starting point
 
-1. Live-test with real `.env` + vaults (Settings → vault paths; keep thumbs off until needed).
-2. Optional UX: virtualized table, note file picker, size histogram.
-3. Keep docs in sync when behavior changes (especially this file’s Status table).
+1. Ensure local `.env` is filled; live-test carefully.
+2. Optional UX: virtualized table, note file picker.
+3. Keep docs free of personal bucket/path values when editing.

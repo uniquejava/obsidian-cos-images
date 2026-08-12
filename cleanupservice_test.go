@@ -10,15 +10,16 @@ func TestPreviewCascadeUniqueVsShared(t *testing.T) {
 	dir := t.TempDir()
 	noteA := filepath.Join(dir, "a.md")
 	noteB := filepath.Join(dir, "b.md")
+	const base = "https://example-bucket.cos.ap-testing.myqcloud.com"
 	mustWrite(t, noteA, `
-![u](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/unique.png)
-![s](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/shared.png)
+![u](`+base+`/obsidian/unique.png)
+![s](`+base+`/obsidian/shared.png)
 `)
 	mustWrite(t, noteB, `
-![s](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/shared.png)
+![s](`+base+`/obsidian/shared.png)
 `)
 
-	refs, err := scanVaultReferences([]string{dir}, "https://example-bucket.cos.ap-testing.myqcloud.com")
+	refs, err := scanVaultReferences([]string{dir}, base)
 	if err != nil {
 		t.Fatal(err)
 	}

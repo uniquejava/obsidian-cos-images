@@ -86,8 +86,8 @@ func getOrFetchThumbnail(key string) ([]byte, error) {
 
 func fetchThumbnailBytes(key string) ([]byte, error) {
 	cfg := loadRuntimeConfig()
-	if cfg.SecretID == "" || cfg.SecretKey == "" {
-		return nil, fmt.Errorf("%w: set COS_SECRET_ID and COS_SECRET_KEY (see .env.example)", ErrMissingCredentials)
+	if err := requireCOSEnv(cfg); err != nil {
+		return nil, err
 	}
 
 	rawURL := joinCOSURL(cfg.COSBaseURL, key)

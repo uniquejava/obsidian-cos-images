@@ -11,7 +11,7 @@ import (
 var cosURLPathRe = regexp.MustCompile(`(?i)https?://([^/\s"'<>\)]+)/([^\s"'<>\)]+)`)
 
 type cosURLMatcher struct {
-	host    string // lower-case host, e.g. REDACTED_BUCKET.cos.ap-shanghai.myqcloud.com
+	host    string // lower-case host from COS_BASE_URL
 	baseURL string
 }
 

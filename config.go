@@ -11,11 +11,8 @@ import (
 )
 
 const (
-	defaultCOSBucket  = "REDACTED_BUCKET"
-	defaultCOSRegion  = "ap-shanghai"
+	// Only non-identifying defaults may live in source. Account/host/paths come from .env.
 	defaultCOSPrefix  = "obsidian/"
-	defaultCOSBaseURL = "https://example-bucket.cos.ap-testing.myqcloud.com"
-	defaultVaultPath  = ""
 	appConfigDirName  = "obsidian-cos-images"
 	appConfigFileName = "config.json"
 )
@@ -31,7 +28,8 @@ type runtimeConfig struct {
 	SecretKey string
 }
 
-// persistedSettings is stored under the user config directory (no secrets).
+// persistedSettings is stored under the OS user config directory (never committed).
+// Vault paths and UI prefs only — no COS secrets or account identifiers.
 type persistedSettings struct {
 	VaultPaths     []string `json:"vaultPaths,omitempty"`
 	ShowThumbnails bool     `json:"showThumbnails"`
@@ -41,18 +39,15 @@ func loadRuntimeConfig() runtimeConfig {
 	secretID := strings.TrimSpace(os.Getenv("COS_SECRET_ID"))
 	secretKey := strings.TrimSpace(os.Getenv("COS_SECRET_KEY"))
 
-	bucket := envOr("COS_BUCKET", defaultCOSBucket)
-	region := envOr("COS_REGION", defaultCOSRegion)
+	bucket := strings.TrimSpace(os.Getenv("COS_BUCKET"))
+	region := strings.TrimSpace(os.Getenv("COS_REGION"))
 	prefix := envOr("COS_PREFIX", defaultCOSPrefix)
-	baseURL := strings.TrimRight(envOr("COS_BASE_URL", defaultCOSBaseURL), "/")
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("COS_BASE_URL")), "/")
 
 	settings, _ := loadPersistedSettings()
 	vaultPaths := settings.VaultPaths
 	if len(vaultPaths) == 0 {
 		vaultPaths = parseVaultPaths(os.Getenv("VAULT_PATHS"))
-	}
-	if len(vaultPaths) == 0 {
-		vaultPaths = []string{defaultVaultPath}
 	}
 
 	return runtimeConfig{
@@ -62,13 +57,37 @@ func loadRuntimeConfig() runtimeConfig {
 			COSPrefix:      prefix,
 			COSBaseURL:     baseURL,
 			VaultPaths:     vaultPaths,
-			ShowThumbnails: settings.ShowThumbnails, // default false when unset
+			ShowThumbnails: settings.ShowThumbnails,
 			SecretIDSet:    secretID != "",
 			SecretKeySet:   secretKey != "",
 		},
 		SecretID:  secretID,
 		SecretKey: secretKey,
 	}
+}
+
+// requireCOSEnv returns an error if required COS identity env vars are missing.
+func requireCOSEnv(cfg runtimeConfig) error {
+	var missing []string
+	if cfg.SecretID == "" {
+		missing = append(missing, "COS_SECRET_ID")
+	}
+	if cfg.SecretKey == "" {
+		missing = append(missing, "COS_SECRET_KEY")
+	}
+	if cfg.COSBucket == "" {
+		missing = append(missing, "COS_BUCKET")
+	}
+	if cfg.COSRegion == "" {
+		missing = append(missing, "COS_REGION")
+	}
+	if cfg.COSBaseURL == "" {
+		missing = append(missing, "COS_BASE_URL")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: set %s in .env (see .env.example)", ErrMissingCredentials, strings.Join(missing, ", "))
 }
 
 // configFilePathOverride is used by tests; empty means use the real user config dir.

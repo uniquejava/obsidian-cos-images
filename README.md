@@ -8,21 +8,17 @@ Built with **Go + Wails v3** (React / TypeScript).
 
 | File | Purpose |
 |------|---------|
-| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Product requirements (source of truth) |
-| [AGENTS.md](AGENTS.md) | Agent / contributor orientation |
-
-## Status
-
-Project **skeleton**. Backend APIs are stubbed (`not implemented`) except default config readout.
+| [AGENTS.md](AGENTS.md) | Current status + how to run |
+| [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | Product scope |
 
 ## Dev
 
 ```bash
 cd ~/code/golang-projects/obsidian-cos-images
-cp .env.example .env   # fill COS credentials locally
+cp .env.example .env   # fill locally; never commit .env
 wails3 task dev
 ```
 
 ## Config
 
-See `.env.example`. Defaults assume bucket `REDACTED_BUCKET` / region `ap-shanghai` / prefix `obsidian/`.
+All COS identity and vault paths come from **`.env`** (see `.env.example` placeholders) or the Settings UI (vault paths / thumbnail preference only, stored under your OS user config directory).

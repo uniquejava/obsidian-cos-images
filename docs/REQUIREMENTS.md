@@ -1,33 +1,37 @@
 # Obsidian COS Images — Requirements
 
-> Product scope (what to build / not build). For **what is already implemented**, see `AGENTS.md` Status — that file is the agent handoff source of truth.
+> Product scope. For run instructions and “what is implemented”, see `AGENTS.md`.
+>
+> **Do not put real bucket names, AppIds, base URLs, secrets, or personal absolute paths in this repo.** Those belong in a local gitignored `.env` (see `.env.example`).
 
-Related context: PicGo uploads clipboard images to Tencent COS; Obsidian notes embed HTTPS URLs.
+Related context: PicGo uploads clipboard images to Tencent COS; Obsidian notes embed HTTPS URLs pointing at that bucket.
 
 ## Goal
 
-Desktop app (Go + **Wails v3**) to manage images stored on **Tencent Cloud COS** that are referenced by **Obsidian Markdown** notes.
+Desktop app (Go + **Wails v3**) to manage images stored on **one Tencent Cloud COS bucket** that are referenced by **Obsidian Markdown** notes.
 
-## Background (known facts)
+## Background (operator-local facts)
 
-| Item | Value |
-|------|--------|
-| COS host / base URL | `https://example-bucket.cos.ap-testing.myqcloud.com` |
-| Bucket | `REDACTED_BUCKET` |
-| Region | `ap-shanghai` |
-| Typical object prefix | `obsidian/` |
-| Key pattern | `obsidian/YYYYMMDDHHMMSS.png` (sometimes with millis / URL-encoded names) |
-| Upload tool | PicGo (clipboard → COS → insert Markdown link) |
-| Obsidian vaults (iCloud) | `~/Library/Mobile Documents/iCloud~md~obsidian/Documents` — includes `WorkFirst`, `Family`, `StudyFirst`, … |
-| Safe local copy for AI experiments | `~/Desktop/Obsidian-Backups/WorkFirst` (optional; production scan should use real vaults) |
+Configure via `.env` (not committed):
 
-Markdown image forms to parse (non-exhaustive):
+| Setting | Env var |
+|---------|---------|
+| SecretId / SecretKey | `COS_SECRET_ID`, `COS_SECRET_KEY` |
+| Bucket (`name-appid`) | `COS_BUCKET` |
+| Region | `COS_REGION` |
+| Object prefix | `COS_PREFIX` (often `obsidian/`) |
+| Public / virtual-host base URL | `COS_BASE_URL` |
+| Vault roots to scan | `VAULT_PATHS` and/or Settings UI |
 
-- `![...](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/....png)`
+Typical PicGo key pattern: `{prefix}YYYYMMDDHHMMSS.png` (sometimes millis / URL-encoded names).
+
+Markdown forms to parse (host must match `COS_BASE_URL`):
+
+- `![...](https://…/obsidian/….png)`
 - Obsidian size suffix: `![image.png\|800](url)`, `![\|768](url)`
 - Occasional HTML `<img src="...">`
 
-Ignore non-COS hosts (O'Reilly, GitHub, Bilibili, etc.) for orphan / cascade logic.
+Ignore non-configured hosts for orphan / cascade logic.
 
 ## Functional requirements
 
@@ -35,43 +39,39 @@ Ignore non-COS hosts (O'Reilly, GitHub, Bilibili, etc.) for orphan / cascade log
 
 - List COS images under the configured prefix.
 - Sort by **upload time** (prefer timestamp in object key; else `LastModified`).
-- Show at least: thumbnail or filename, **size** (bytes / human), upload time, key, public URL.
-- Filters: by size (e.g. `> 1MB`), by date range, by “unused only”.
-- Select one or many images for delete (with confirmation).
-- Thumbnails optional; **default off** to limit COS egress; prefer local cache when enabled.
+- Show size, upload time, key, public URL; optional thumbnails.
+- Filters: size, date range, unused only.
+- Multi-select delete with confirmation.
+- Thumbnails **default off**; local cache when enabled.
 
 ### 2. Reference mapping
 
-- Scan configured vault root(s) recursively for `.md` files.
-- Build map: `image URL/key → [markdown file paths…]`.
+- Scan configured vault root(s) for `.md` files.
+- Map image URL/key → note paths.
 - From an image, show which notes use it.
-- From a note path, list images it references (cascade preview covers this).
 
 ### 3. Orphan detection
 
-- `orphans = COS objects − referenced set` (normalized URL/key; decode `%20` etc.).
-- Report orphans with size and estimated reclaimable storage.
-- Delete only after explicit confirm; support export report (CSV/JSON).
+- `orphans = COS objects − referenced set` (normalized keys; decode `%20` etc.).
+- Report size / reclaimable bytes; export CSV/JSON; delete only after confirm.
 
 ### 4. Cascade delete with notes
 
-- User provides a Markdown note path: preview images that would be removed.
-- **Default policy:** delete only images **uniquely** referenced by that note; keep shared images.
-- Always show preview + total bytes before destructive action.
+- Note path → preview images to remove.
+- **Default:** delete only uniquely referenced images; keep shared.
+- Preview + bytes before destructive action.
 - Deleting the note file itself is out of scope for v1.
 
 ### 5. Image size awareness
 
-- Display COS `Size` for every object.
-- Sort by size desc; help find large pre-compression uploads (histogram optional).
+- Display COS `Size`; sort by size to find large uploads.
 
 ## Non-functional
 
 - Stack: Go 1.25+, Wails **v3.0.0-beta.6**, React + TypeScript + Vite.
-- Secrets: `SecretId` / `SecretKey` via `.env` / env; never commit. Vault paths may be persisted in user config (no secrets).
-- Destructive ops: confirm dialog; preview / export before mass delete.
-- Scan all configured vaults so cross-vault shared images are not marked orphan incorrectly.
-- iCloud paths may be slow / locked; allow scanning a local backup path for development.
+- Secrets and account identity only via `.env` / env; never commit.
+- Vault paths may be persisted in **OS user config** (local, no secrets).
+- Confirm before destructive ops; scan all configured vaults for cross-vault safety.
 
 ## Architecture
 
@@ -82,31 +82,21 @@ VaultService    — ScanReferences, FindNotesUsing  (+ event vault:scan)
 CleanupService  — ListOrphans, ExportOrphans, PreviewCascadeDelete, CascadeDeleteNoteImages
 ```
 
-Models: `models.go`. Shared URL/key helpers: `cosurl.go`. Thumbnail disk cache: `thumbcache.go`.
-
 ## Implementation phases
 
 | Phase | Scope | Status |
 |-------|--------|--------|
-| 1 | Config + COS list | Done |
-| 2 | Vault scan + reference UI | Done |
-| 3 | Orphans + export + delete | Done |
-| 4 | Cascade preview + unique-only delete | Done |
-| 5 | Polish (filters, thumbs off-by-default + cache, progress) | Done |
+| 1–5 | Config/list, vault, orphans, cascade, polish | Done |
 
 ## Out of scope (v1)
 
-- Replacing PicGo upload pipeline.
-- Editing Markdown image links / CDN migration.
-- Multi-cloud providers other than this Tencent COS bucket.
-- Automatic watch of vault deletes.
+- Replacing PicGo; editing Markdown links; multi-cloud; automatic vault delete watch.
 
 ## Acceptance checks
 
-- [x] List shows real COS objects with correct sizes (needs live `.env` to verify in UI).
-- [x] Sort by upload time uses PicGo key timestamp when present.
-- [x] Reference scan finds WorkFirst-scale COS URLs (≈3500+ unique on backup smoke test).
-- [x] Orphan list excludes images still used in any configured vault.
-- [x] Cascade preview never proposes deleting shared images under default policy (`forceUniqueOnly=true`).
-- [x] No secrets in git; `.env.example` documents required vars.
+- [x] List/sort/size from COS using env-configured bucket.
+- [x] Vault scan for configured host only.
+- [x] Orphans exclude images still referenced in any configured vault.
+- [x] Cascade default keeps shared images.
+- [x] No secrets or personal COS/path defaults in git; `.env.example` is placeholders only.
 - [x] Thumbnails default off; cached locally when enabled.

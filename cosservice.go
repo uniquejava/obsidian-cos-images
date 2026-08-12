@@ -34,8 +34,8 @@ var (
 // ListImages returns objects under the configured prefix, newest upload first.
 func (s *COSService) ListImages() ([]ImageObject, error) {
 	cfg := loadRuntimeConfig()
-	if cfg.SecretID == "" || cfg.SecretKey == "" {
-		return nil, fmt.Errorf("%w: set COS_SECRET_ID and COS_SECRET_KEY (see .env.example)", ErrMissingCredentials)
+	if err := requireCOSEnv(cfg); err != nil {
+		return nil, err
 	}
 
 	client, err := newCOSClient(cfg)
@@ -118,8 +118,8 @@ func (s *COSService) DeleteImages(keys []string) error {
 	}
 
 	cfg := loadRuntimeConfig()
-	if cfg.SecretID == "" || cfg.SecretKey == "" {
-		return fmt.Errorf("%w: set COS_SECRET_ID and COS_SECRET_KEY (see .env.example)", ErrMissingCredentials)
+	if err := requireCOSEnv(cfg); err != nil {
+		return err
 	}
 	client, err := newCOSClient(cfg)
 	if err != nil {
