@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Obsidian COS Images
+Comment=Manage PicGo / Tencent COS images used by Obsidian Markdown notes
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/obsidian-cos-images %u
+Terminal=false
+Type=Application
+Icon=obsidian-cos-images
+Categories=Utility;
+StartupWMClass=obsidian-cos-images
+
+ 
