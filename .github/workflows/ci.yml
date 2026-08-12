@@ -2,16 +2,27 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build, for example v0.1.0'
+        required: true
+        type: string
 
 jobs:
   build:
     name: Build macOS app
     runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      APP_DISPLAY_NAME: Obsidian COS Images
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -45,3 +56,33 @@ jobs:
 
       - name: Package
         run: wails3 package
+
+      - name: Build DMG
+        env:
+          DMG_PATH: ${{ runner.temp }}/Obsidian-COS-Images-${{ env.RELEASE_TAG }}.dmg
+        run: |
+          set -euo pipefail
+          APP_SRC="bin/obsidian-cos-images.app"
+          STAGE="${{ runner.temp }}/dmg-stage"
+
+          test -d "$APP_SRC"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -R "$APP_SRC" "$STAGE/${APP_DISPLAY_NAME}.app"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "$APP_DISPLAY_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
+          rm -rf "$STAGE"
+          ls -lh "$DMG_PATH"
+          # Also keep a zip of the .app for users who prefer not to mount a DMG
+          ditto -c -k --keepParent "$APP_SRC" "${{ runner.temp }}/Obsidian-COS-Images-${RELEASE_TAG}.zip"
+          ls -lh "${{ runner.temp }}/Obsidian-COS-Images-${RELEASE_TAG}.zip"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Obsidian COS Images ${{ env.RELEASE_TAG }}
+          files: |
+            ${{ runner.temp }}/Obsidian-COS-Images-${{ env.RELEASE_TAG }}.dmg
+            ${{ runner.temp }}/Obsidian-COS-Images-${{ env.RELEASE_TAG }}.zip
+          generate_release_notes: true
