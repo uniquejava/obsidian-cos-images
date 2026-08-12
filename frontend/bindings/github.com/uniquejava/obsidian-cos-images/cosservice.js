@@ -16,12 +16,30 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
+ * ClearThumbnailCache deletes locally cached thumbnails.
+ * @returns {$CancellablePromise<void>}
+ */
+export function ClearThumbnailCache() {
+    return $Call.ByID(928286389);
+}
+
+/**
  * DeleteImages deletes COS objects by key. Prefer dry-run / confirm in UI first.
  * @param {string[]} keys
  * @returns {$CancellablePromise<void>}
  */
 export function DeleteImages(keys) {
     return $Call.ByID(3957060343, keys);
+}
+
+/**
+ * GetThumbnail returns a base64-encoded thumbnail for the object key.
+ * Results are cached under the user cache directory so repeat views avoid COS traffic.
+ * @param {string} key
+ * @returns {$CancellablePromise<string>}
+ */
+export function GetThumbnail(key) {
+    return $Call.ByID(1171756002, key);
 }
 
 /**

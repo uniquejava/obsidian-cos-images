@@ -51,6 +51,13 @@ export class AppConfig {
              */
             this["vaultPaths"] = [];
         }
+        if (!("showThumbnails" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["showThumbnails"] = false;
+        }
         if (!("secretIdSet" in $$source)) {
             /**
              * @member

@@ -22,17 +22,49 @@ func TestSaveAndLoadVaultPaths(t *testing.T) {
 	if err := savePersistedVaultPaths(paths); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := readPersistedVaultPaths()
-	if err != nil || !ok {
-		t.Fatalf("ok=%v err=%v", ok, err)
+	settings, err := loadPersistedSettings()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("got %v", got)
+	if len(settings.VaultPaths) != 2 {
+		t.Fatalf("got %v", settings.VaultPaths)
+	}
+	if settings.ShowThumbnails {
+		t.Fatal("ShowThumbnails should default false")
 	}
 
+	if err := saveShowThumbnails(true); err != nil {
+		t.Fatal(err)
+	}
 	cfg := loadRuntimeConfig()
 	if len(cfg.VaultPaths) != 2 {
 		t.Fatalf("runtime vault paths = %v", cfg.VaultPaths)
+	}
+	if !cfg.ShowThumbnails {
+		t.Fatal("expected ShowThumbnails true after save")
+	}
+}
+
+func TestThumbnailCacheRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	thumbnailCacheDirOverride = tmp
+	t.Cleanup(func() { thumbnailCacheDirOverride = "" })
+
+	key := "obsidian/demo.png"
+	path, err := thumbnailCachePath(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("fake-thumb-bytes")
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := getOrFetchThumbnail(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("cache miss? got %q", got)
 	}
 }
 

@@ -26,6 +26,15 @@ func (s *ConfigService) SaveVaultPaths(paths []string) error {
 	return nil
 }
 
+// SaveShowThumbnails persists whether the UI should load/cached thumbnails.
+// Default is off to avoid COS egress until the user opts in.
+func (s *ConfigService) SaveShowThumbnails(enabled bool) error {
+	if err := saveShowThumbnails(enabled); err != nil {
+		return fmt.Errorf("save showThumbnails: %w", err)
+	}
+	return nil
+}
+
 // ConfigFilePath returns where vault settings are stored (for UI display).
 func (s *ConfigService) ConfigFilePath() (string, error) {
 	return configFilePath()

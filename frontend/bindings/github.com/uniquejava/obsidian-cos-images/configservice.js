@@ -35,6 +35,16 @@ export function GetConfig() {
 }
 
 /**
+ * SaveShowThumbnails persists whether the UI should load/cached thumbnails.
+ * Default is off to avoid COS egress until the user opts in.
+ * @param {boolean} enabled
+ * @returns {$CancellablePromise<void>}
+ */
+export function SaveShowThumbnails(enabled) {
+    return $Call.ByID(4201525806, enabled);
+}
+
+/**
  * SaveVaultPaths updates which vault roots are scanned for Markdown references.
  * Paths are persisted under the user config directory.
  * @param {string[]} paths

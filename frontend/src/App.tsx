@@ -15,6 +15,9 @@ import {
 type Tab = 'images' | 'orphans' | 'cascade' | 'settings';
 type SortBy = 'uploadTime' | 'size';
 
+/** In-memory data-URL cache for the current session (disk cache lives in Go). */
+const thumbMemory = new Map<string, string>();
+
 function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '—';
   if (n < 1024) return `${n} B`;
@@ -40,13 +43,6 @@ function shortPath(p: string): string {
   return parts.slice(-3).join('/');
 }
 
-/** COS image processing thumbnail (falls back to full URL if processing unavailable). */
-function thumbURL(url: string): string {
-  if (!url) return '';
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}imageMogr2/thumbnail/64x`;
-}
-
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], {type: mime});
   const href = URL.createObjectURL(blob);
@@ -69,11 +65,72 @@ function dayEnd(isoDate: string): number | null {
   return Number.isNaN(d.getTime()) ? null : d.getTime();
 }
 
+function CachedThumb({keyName, size = 40}: {keyName: string; size?: number}) {
+  const [src, setSrc] = useState<string | null>(() => thumbMemory.get(keyName) ?? null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cached = thumbMemory.get(keyName);
+    if (cached) {
+      setSrc(cached);
+      return;
+    }
+    setFailed(false);
+    COSService.GetThumbnail(keyName)
+      .then((b64) => {
+        if (cancelled || !b64) return;
+        const dataURL = `data:image/jpeg;base64,${b64}`;
+        thumbMemory.set(keyName, dataURL);
+        setSrc(dataURL);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [keyName]);
+
+  if (failed) {
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          background: '#f4f4f5',
+          color: '#a1a1aa',
+          fontSize: 10,
+          display: 'grid',
+          placeItems: 'center',
+        }}
+      >
+        —
+      </div>
+    );
+  }
+  if (!src) {
+    return (
+      <div style={{width: size, height: size, background: '#f4f4f5'}} />
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      style={{objectFit: 'cover', background: '#f4f4f5', display: 'block'}}
+    />
+  );
+}
+
 function App() {
   const [tab, setTab] = useState<Tab>('images');
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [configPath, setConfigPath] = useState('');
   const [vaultPathsText, setVaultPathsText] = useState('');
+  const [showThumbnails, setShowThumbnails] = useState(false);
   const [images, setImages] = useState<ImageObject[]>([]);
   const [refs, setRefs] = useState<ImageRef[]>([]);
   const [orphans, setOrphans] = useState<OrphanImage[]>([]);
@@ -102,6 +159,7 @@ function App() {
     const cfg = await ConfigService.GetConfig();
     setConfig(cfg);
     setVaultPathsText((cfg.vaultPaths ?? []).join('\n'));
+    setShowThumbnails(Boolean(cfg.showThumbnails));
     try {
       const path = await ConfigService.ConfigFilePath();
       setConfigPath(path ?? '');
@@ -288,6 +346,31 @@ function App() {
     }
   };
 
+  const toggleThumbnails = async (enabled: boolean) => {
+    setShowThumbnails(enabled);
+    try {
+      await ConfigService.SaveShowThumbnails(enabled);
+      setConfig((c) => (c ? {...c, showThumbnails: enabled} : c));
+    } catch (e: unknown) {
+      setError(String(e));
+      setShowThumbnails(!enabled);
+    }
+  };
+
+  const clearThumbCache = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await COSService.ClearThumbnailCache();
+      thumbMemory.clear();
+      window.alert('Local thumbnail cache cleared.');
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const runCascadePreview = async () => {
     setLoading(true);
     setError('');
@@ -406,6 +489,14 @@ function App() {
               />
               Unused only
             </label>
+            <label style={{display: 'flex', gap: 6, alignItems: 'center'}} title="Off by default to avoid COS egress. Cached locally after first load.">
+              <input
+                type="checkbox"
+                checked={showThumbnails}
+                onChange={(e) => toggleThumbnails(e.target.checked)}
+              />
+              Thumbnails
+            </label>
             <button
               type="button"
               disabled={selectedKeys.size === 0 || loading}
@@ -422,6 +513,7 @@ function App() {
             rows={filteredImages}
             refByKey={refByKey}
             selectedKeys={selectedKeys}
+            showThumbnails={showThumbnails}
             onToggle={toggleKey}
             onOpen={setDetailKey}
           />
@@ -440,6 +532,14 @@ function App() {
             <button type="button" disabled={loading} onClick={() => exportOrphans('json')}>
               Export JSON
             </button>
+            <label style={{display: 'flex', gap: 6, alignItems: 'center'}}>
+              <input
+                type="checkbox"
+                checked={showThumbnails}
+                onChange={(e) => toggleThumbnails(e.target.checked)}
+              />
+              Thumbnails
+            </label>
             <button
               type="button"
               disabled={selectedKeys.size === 0 || loading}
@@ -462,6 +562,7 @@ function App() {
             rows={orphans}
             refByKey={refByKey}
             selectedKeys={selectedKeys}
+            showThumbnails={showThumbnails}
             onToggle={toggleKey}
             onOpen={setDetailKey}
           />
@@ -503,17 +604,7 @@ function App() {
               <ul>
                 {(cascadePreview.images ?? []).map((img) => (
                   <li key={img.key} style={{display: 'flex', gap: 8, alignItems: 'center'}}>
-                    <img
-                      src={thumbURL(img.url)}
-                      alt=""
-                      width={32}
-                      height={32}
-                      loading="lazy"
-                      style={{objectFit: 'cover', background: '#f4f4f5'}}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.visibility = 'hidden';
-                      }}
-                    />
+                    {showThumbnails && <CachedThumb keyName={img.key} size={32} />}
                     <code>{img.key}</code> · {formatBytes(img.size)}
                   </li>
                 ))}
@@ -533,9 +624,28 @@ function App() {
 
       {tab === 'settings' && (
         <section>
+          <h3 style={{marginTop: 0}}>Thumbnails</h3>
+          <p style={{color: '#555'}}>
+            Default off. When enabled, 64px thumbs are fetched once (COS{' '}
+            <code>imageMogr2</code>) and stored under the OS cache dir; later views use the local
+            cache (plus an in-memory cache for the session).
+          </p>
+          <label style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12}}>
+            <input
+              type="checkbox"
+              checked={showThumbnails}
+              onChange={(e) => toggleThumbnails(e.target.checked)}
+            />
+            Show thumbnails
+          </label>
+          <button type="button" onClick={clearThumbCache} disabled={loading}>
+            Clear local thumbnail cache
+          </button>
+
+          <h3>Vault paths</h3>
           <p style={{color: '#555'}}>
             One vault root per line. Saved to local config (no secrets). Env{' '}
-            <code>VAULT_PATHS</code> is used only when no saved config exists.
+            <code>VAULT_PATHS</code> is used only when no saved paths exist.
           </p>
           {configPath && (
             <p style={{fontSize: 13, color: '#71717a'}}>
@@ -594,22 +704,25 @@ function ImageTable({
   rows,
   refByKey,
   selectedKeys,
+  showThumbnails,
   onToggle,
   onOpen,
 }: {
   rows: ImageObject[];
   refByKey: Map<string, ImageRef>;
   selectedKeys: Set<string>;
+  showThumbnails: boolean;
   onToggle: (key: string) => void;
   onOpen: (key: string) => void;
 }) {
+  const colSpan = showThumbnails ? 7 : 6;
   return (
     <div style={{overflow: 'auto', border: '1px solid #e4e4e7', borderRadius: 8, maxHeight: '70vh'}}>
       <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 14}}>
         <thead>
           <tr style={{background: '#f4f4f5', textAlign: 'left', position: 'sticky', top: 0}}>
             <th style={{padding: '10px 12px'}}></th>
-            <th style={{padding: '10px 12px'}}>Thumb</th>
+            {showThumbnails && <th style={{padding: '10px 12px'}}>Thumb</th>}
             <th style={{padding: '10px 12px'}}>Key</th>
             <th style={{padding: '10px 12px'}}>Size</th>
             <th style={{padding: '10px 12px'}}>Upload time</th>
@@ -620,7 +733,7 @@ function ImageTable({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={7} style={{padding: 16, color: '#71717a'}}>
+              <td colSpan={colSpan} style={{padding: 16, color: '#71717a'}}>
                 No rows.
               </td>
             </tr>
@@ -636,23 +749,11 @@ function ImageTable({
                     onChange={() => onToggle(img.key)}
                   />
                 </td>
-                <td style={{padding: '6px 12px'}}>
-                  <img
-                    src={thumbURL(img.url)}
-                    alt=""
-                    width={40}
-                    height={40}
-                    loading="lazy"
-                    style={{objectFit: 'cover', background: '#f4f4f5', display: 'block'}}
-                    onError={(e) => {
-                      const el = e.target as HTMLImageElement;
-                      if (el.dataset.fallback !== '1') {
-                        el.dataset.fallback = '1';
-                        el.src = img.url;
-                      }
-                    }}
-                  />
-                </td>
+                {showThumbnails && (
+                  <td style={{padding: '6px 12px'}}>
+                    <CachedThumb keyName={img.key} />
+                  </td>
+                )}
                 <td style={{padding: '8px 12px', fontFamily: 'ui-monospace, monospace'}}>
                   <button
                     type="button"

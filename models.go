@@ -35,11 +35,12 @@ type CascadeDeletePreview struct {
 
 // AppConfig is local settings (loaded from env / config file; never commit secrets).
 type AppConfig struct {
-	COSBucket    string   `json:"cosBucket"`
-	COSRegion    string   `json:"cosRegion"`
-	COSPrefix    string   `json:"cosPrefix"` // e.g. "obsidian/"
-	COSBaseURL   string   `json:"cosBaseURL"`
-	VaultPaths   []string `json:"vaultPaths"`
-	SecretIDSet  bool     `json:"secretIdSet"`
-	SecretKeySet bool     `json:"secretKeySet"`
+	COSBucket      string   `json:"cosBucket"`
+	COSRegion      string   `json:"cosRegion"`
+	COSPrefix      string   `json:"cosPrefix"` // e.g. "obsidian/"
+	COSBaseURL     string   `json:"cosBaseURL"`
+	VaultPaths     []string `json:"vaultPaths"`
+	ShowThumbnails bool     `json:"showThumbnails"`
+	SecretIDSet    bool     `json:"secretIdSet"`
+	SecretKeySet   bool     `json:"secretKeySet"`
 }

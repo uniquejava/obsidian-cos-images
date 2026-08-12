@@ -33,7 +33,8 @@ type runtimeConfig struct {
 
 // persistedSettings is stored under the user config directory (no secrets).
 type persistedSettings struct {
-	VaultPaths []string `json:"vaultPaths"`
+	VaultPaths     []string `json:"vaultPaths,omitempty"`
+	ShowThumbnails bool     `json:"showThumbnails"`
 }
 
 func loadRuntimeConfig() runtimeConfig {
@@ -45,36 +46,36 @@ func loadRuntimeConfig() runtimeConfig {
 	prefix := envOr("COS_PREFIX", defaultCOSPrefix)
 	baseURL := strings.TrimRight(envOr("COS_BASE_URL", defaultCOSBaseURL), "/")
 
-	vaultPaths := loadVaultPaths()
+	settings, _ := loadPersistedSettings()
+	vaultPaths := settings.VaultPaths
+	if len(vaultPaths) == 0 {
+		vaultPaths = parseVaultPaths(os.Getenv("VAULT_PATHS"))
+	}
+	if len(vaultPaths) == 0 {
+		vaultPaths = []string{defaultVaultPath}
+	}
 
 	return runtimeConfig{
 		AppConfig: AppConfig{
-			COSBucket:    bucket,
-			COSRegion:    region,
-			COSPrefix:    prefix,
-			COSBaseURL:   baseURL,
-			VaultPaths:   vaultPaths,
-			SecretIDSet:  secretID != "",
-			SecretKeySet: secretKey != "",
+			COSBucket:      bucket,
+			COSRegion:      region,
+			COSPrefix:      prefix,
+			COSBaseURL:     baseURL,
+			VaultPaths:     vaultPaths,
+			ShowThumbnails: settings.ShowThumbnails, // default false when unset
+			SecretIDSet:    secretID != "",
+			SecretKeySet:   secretKey != "",
 		},
 		SecretID:  secretID,
 		SecretKey: secretKey,
 	}
 }
 
-// loadVaultPaths prefers persisted UI settings, then VAULT_PATHS env, then default.
-func loadVaultPaths() []string {
-	if paths, ok, err := readPersistedVaultPaths(); err == nil && ok && len(paths) > 0 {
-		return paths
-	}
-	if paths := parseVaultPaths(os.Getenv("VAULT_PATHS")); len(paths) > 0 {
-		return paths
-	}
-	return []string{defaultVaultPath}
-}
-
 // configFilePathOverride is used by tests; empty means use the real user config dir.
 var configFilePathOverride string
+
+// thumbnailCacheDirOverride is used by tests.
+var thumbnailCacheDirOverride string
 
 func configFilePath() (string, error) {
 	if configFilePathOverride != "" {
@@ -87,34 +88,28 @@ func configFilePath() (string, error) {
 	return filepath.Join(dir, appConfigDirName, appConfigFileName), nil
 }
 
-func readPersistedVaultPaths() (paths []string, ok bool, err error) {
+func loadPersistedSettings() (persistedSettings, error) {
 	path, err := configFilePath()
 	if err != nil {
-		return nil, false, err
+		return persistedSettings{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, false, nil
+			return persistedSettings{}, nil
 		}
-		return nil, false, err
+		return persistedSettings{}, err
 	}
 	var settings persistedSettings
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return nil, false, fmt.Errorf("parse config %s: %w", path, err)
+		return persistedSettings{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
-	cleaned := cleanPaths(settings.VaultPaths)
-	if len(cleaned) == 0 {
-		return nil, false, nil
-	}
-	return cleaned, true, nil
+	settings.VaultPaths = cleanPaths(settings.VaultPaths)
+	return settings, nil
 }
 
-func savePersistedVaultPaths(paths []string) error {
-	cleaned := cleanPaths(paths)
-	if len(cleaned) == 0 {
-		return fmt.Errorf("at least one vault path is required")
-	}
+func savePersistedSettings(settings persistedSettings) error {
+	settings.VaultPaths = cleanPaths(settings.VaultPaths)
 	path, err := configFilePath()
 	if err != nil {
 		return err
@@ -122,11 +117,33 @@ func savePersistedVaultPaths(paths []string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(persistedSettings{VaultPaths: cleaned}, "", "  ")
+	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+func savePersistedVaultPaths(paths []string) error {
+	cleaned := cleanPaths(paths)
+	if len(cleaned) == 0 {
+		return fmt.Errorf("at least one vault path is required")
+	}
+	settings, err := loadPersistedSettings()
+	if err != nil {
+		return err
+	}
+	settings.VaultPaths = cleaned
+	return savePersistedSettings(settings)
+}
+
+func saveShowThumbnails(enabled bool) error {
+	settings, err := loadPersistedSettings()
+	if err != nil {
+		return err
+	}
+	settings.ShowThumbnails = enabled
+	return savePersistedSettings(settings)
 }
 
 func cleanPaths(paths []string) []string {
