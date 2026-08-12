@@ -233,14 +233,6 @@ function App() {
   };
 
   useEffect(() => {
-    loadImagesAndRefs();
-  }, []);
-
-  useEffect(() => {
-    if (tab === 'orphans') loadOrphans();
-  }, [tab]);
-
-  useEffect(() => {
     if (!detailKey) {
       setDetailNotes([]);
       return;
@@ -506,6 +498,7 @@ function App() {
             </button>
             <span style={{color: '#666'}}>
               {filteredImages.length} shown · {formatBytes(totalBytes)}
+              {images.length === 0 && !loading ? ' · click Refresh to load' : ''}
             </span>
           </div>
 
@@ -734,7 +727,7 @@ function ImageTable({
           {rows.length === 0 && (
             <tr>
               <td colSpan={colSpan} style={{padding: 16, color: '#71717a'}}>
-                No rows.
+                No rows yet. Click Refresh to load from COS / vaults (not auto-fetched on open).
               </td>
             </tr>
           )}

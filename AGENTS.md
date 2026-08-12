@@ -91,6 +91,6 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Next session starting point
 
-1. Ensure local `.env` is filled; live-test carefully.
+1. Ensure local `.env` is filled; live-test carefully. UI lists stay empty until you click Refresh (no auto-fetch on mount / HMR).
 2. Optional UX: virtualized table, note file picker.
 3. Keep docs free of personal bucket/path values when editing.
