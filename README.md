@@ -49,7 +49,7 @@ On first launch without config, open **Settings** and save COS credentials + vau
 
 ```bash
 wails3 package
-# → bin/obsidian-cos-images.app  (~13 MB, arm64)
+# → bin/obsidian-cos-images.app  (~13 MB; DMG/zip ~6 MB)
 open bin/obsidian-cos-images.app
 # or install:
 # cp -R bin/obsidian-cos-images.app "/Applications/Obsidian COS Images.app"
