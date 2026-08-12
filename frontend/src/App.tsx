@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import {Events} from '@wailsio/runtime';
+import {Browser, Events} from '@wailsio/runtime';
 import {
   AppConfig,
   CascadeDeletePreview,
@@ -782,9 +782,18 @@ function ImageTable({
                 <td style={{whiteSpace: 'nowrap'}}>{formatTime(img.uploadTime)}</td>
                 <td>{noteCount}</td>
                 <td>
-                  <a href={img.url} target="_blank" rel="noreferrer">
+                  <button
+                    type="button"
+                    className="linkish"
+                    title={img.url}
+                    onClick={() => {
+                      void Browser.OpenURL(img.url).catch((e: unknown) => {
+                        window.alert(`Could not open URL:\n${String(e)}`);
+                      });
+                    }}
+                  >
                     open
-                  </a>
+                  </button>
                 </td>
               </tr>
             );
