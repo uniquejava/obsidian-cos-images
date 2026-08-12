@@ -4,7 +4,7 @@ Manage **PicGo → Tencent COS** images used by **Obsidian** Markdown notes.
 
 Built with **Go + Wails v3** (React / TypeScript).
 
-Download prebuilt macOS builds from **[Releases](https://github.com/uniquejava/obsidian-cos-images/releases)** (tag `v*` triggers CI).
+Download prebuilt macOS builds from **[Releases](https://github.com/uniquejava/obsidian-cos-images/releases)** (only `v*` tags / manual dispatch run CI; pushes to main do not).
 
 ![Images](./docs/screenshot.png)
 

@@ -45,13 +45,13 @@ cleanupservice.go / export.go
 frontend/src/App.tsx
 docs/REQUIREMENTS.md
 docs/screenshot.png / docs/compress.png
-.github/workflows/   # CI on main; Release on tag v*
+.github/workflows/   # tag v* (or manual dispatch) → test + package + GitHub Release
 .env.example         # placeholders only (dev convenience)
 ```
 
 Module: `github.com/uniquejava/obsidian-cos-images`  
 Bundle ID: `click.yinsb.obsidiancosimages`  
-Sibling: `../video-editor-wails` (Wails); release Actions patterned after EggplantFred (`v*` → DMG)
+Sibling: `../video-editor-wails` (Wails); Actions patterned after EggplantFred — **only** `v*` tags (or workflow_dispatch) build/publish; main pushes stay quiet.
 
 ## Run
 
