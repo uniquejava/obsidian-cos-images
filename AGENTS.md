@@ -44,6 +44,7 @@ cosurl.go / vaultservice.go
 cleanupservice.go / export.go
 frontend/src/App.tsx
 docs/REQUIREMENTS.md
+docs/app-icon.md     # Dock/Finder icon + Wails Assets.car / .icns pitfalls
 docs/screenshot.png / docs/compress.png
 .github/workflows/   # tag v* (or manual dispatch) → test + package + GitHub Release
 .env.example         # placeholders only (dev convenience)
