@@ -5,16 +5,25 @@ import (
 )
 
 // ConfigService exposes local app settings to the UI.
-// Credentials stay in env / local config file; only non-secret status is returned.
+// SecretKey is never returned after save; only a set/unset flag is exposed.
 type ConfigService struct{}
 
 func NewConfigService() *ConfigService {
 	return &ConfigService{}
 }
 
-// GetConfig returns current config from env / persisted settings (no secrets).
+// GetConfig returns current config from persisted settings / optional env (no SecretKey).
 func (s *ConfigService) GetConfig() (AppConfig, error) {
 	return loadRuntimeConfig().AppConfig, nil
+}
+
+// SaveCOSSettings persists COS identity for packaged installs (Settings UI).
+// Empty SecretKey keeps the previously saved key.
+func (s *ConfigService) SaveCOSSettings(settings COSSettings) error {
+	if err := saveCOSSettings(settings); err != nil {
+		return fmt.Errorf("save COS settings: %w", err)
+	}
+	return nil
 }
 
 // SaveVaultPaths updates which vault roots are scanned for Markdown references.
@@ -35,7 +44,7 @@ func (s *ConfigService) SaveShowThumbnails(enabled bool) error {
 	return nil
 }
 
-// ConfigFilePath returns where vault settings are stored (for UI display).
+// ConfigFilePath returns where settings are stored (for UI display).
 func (s *ConfigService) ConfigFilePath() (string, error) {
 	return configFilePath()
 }

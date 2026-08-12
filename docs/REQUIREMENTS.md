@@ -2,7 +2,7 @@
 
 > Product scope. For run instructions and “what is implemented”, see `AGENTS.md`.
 >
-> **Do not put real bucket names, AppIds, base URLs, secrets, or personal absolute paths in this repo.** Those belong in a local gitignored `.env` (see `.env.example`).
+> **Do not put real bucket names, AppIds, base URLs, secrets, or personal absolute paths in this repo.** Runtime values live in the OS user config file (Settings UI) and optionally a local gitignored `.env` for development (see `.env.example`).
 
 Related context: PicGo uploads clipboard images to Tencent COS; Obsidian notes embed HTTPS URLs pointing at that bucket.
 
@@ -12,20 +12,23 @@ Desktop app (Go + **Wails v3**) to manage images stored on **one Tencent Cloud C
 
 ## Background (operator-local facts)
 
-Configure via `.env` (not committed):
+**Primary path:** configure everything in the **Settings** UI. Values persist under the OS user config directory (local only; never commit).
 
-| Setting | Env var |
-|---------|---------|
-| SecretId / SecretKey | `COS_SECRET_ID`, `COS_SECRET_KEY` |
-| Bucket (`name-appid`) | `COS_BUCKET` |
-| Region | `COS_REGION` |
-| Object prefix | `COS_PREFIX` (often `obsidian/`) |
-| Public / virtual-host base URL | `COS_BASE_URL` |
-| Vault roots to scan | `VAULT_PATHS` and/or Settings UI |
+**Dev fallback:** optional gitignored `.env` fills any field that is still empty in the saved config.
+
+| Setting | Settings UI / persisted | Env var (dev fallback) |
+|---------|-------------------------|------------------------|
+| SecretId / SecretKey | Yes (SecretKey never returned to UI after save) | `COS_SECRET_ID`, `COS_SECRET_KEY` |
+| Bucket (`name-appid`) | Yes | `COS_BUCKET` |
+| Region | Yes | `COS_REGION` |
+| Object prefix | Yes (default `obsidian/`) | `COS_PREFIX` |
+| Public / virtual-host base URL | Yes | `COS_BASE_URL` |
+| Vault roots to scan | Yes | `VAULT_PATHS` |
+| Show thumbnails | Yes (default off) | — |
 
 Typical PicGo key pattern: `{prefix}YYYYMMDDHHMMSS.png` (sometimes millis / URL-encoded names).
 
-Markdown forms to parse (host must match `COS_BASE_URL`):
+Markdown forms to parse (host must match configured `COS_BASE_URL`):
 
 - `![...](https://…/obsidian/….png)`
 - Obsidian size suffix: `![image.png\|800](url)`, `![\|768](url)`
@@ -60,18 +63,26 @@ Ignore non-configured hosts for orphan logic.
 
 - Display COS `Size`; sort by size to find large uploads.
 
+### 5. First-run / Settings
+
+- Packaged app users initialize via Settings (no requirement to edit `.env`).
+- If COS identity is incomplete, surface a clear prompt and steer users to Settings.
+- **Test connection** in Settings probes bucket access with the form values (does not save).
+- SecretKey: password field; leave blank on save to keep the existing value.
+- Config file mode should not be world-readable when secrets are stored.
+
 ## Non-functional
 
 - Stack: Go 1.25+, Wails **v3.0.0-beta.6**, React + TypeScript + Vite.
-- Secrets and account identity only via `.env` / env; never commit.
-- Vault paths may be persisted in **OS user config** (local, no secrets).
+- Never commit secrets or personal COS/path defaults. Committed `.env.example` is placeholders only.
+- Runtime identity and vault paths persist in **OS user config** (local). Optional `.env` is a developer convenience only.
 - Confirm before destructive ops; scan all configured vaults for cross-vault safety.
 
 ## Architecture
 
 ```
-ConfigService   — GetConfig, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
-COSService      — ListImages, DeleteImages, GetThumbnail, ClearThumbnailCache
+ConfigService   — GetConfig, SaveCOSSettings, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
+COSService      — ListImages, DeleteImages, TestConnection, GetThumbnail, ClearThumbnailCache
 VaultService    — ScanReferences, FindNotesUsing, ReadNote  (+ event vault:scan)
 CleanupService  — ListOrphans, ExportOrphans
 ```
@@ -81,6 +92,7 @@ CleanupService  — ListOrphans, ExportOrphans
 | Phase | Scope | Status |
 |-------|--------|--------|
 | 1–4 | Config/list, vault, orphans, polish | Done |
+| 5 | Settings-first COS config (UI + persist) | Done |
 
 ## Out of scope (v1)
 
@@ -89,8 +101,10 @@ CleanupService  — ListOrphans, ExportOrphans
 
 ## Acceptance checks
 
-- [x] List/sort/size from COS using env-configured bucket.
+- [x] List/sort/size from COS using configured bucket.
 - [x] Vault scan for configured host only.
 - [x] Orphans exclude images still referenced in any configured vault.
 - [x] No secrets or personal COS/path defaults in git; `.env.example` is placeholders only.
 - [x] Thumbnails default off; cached locally when enabled.
+- [x] All COS + vault settings editable in Settings UI and persisted locally.
+- [x] Fresh install works without a `.env` file after Settings save.

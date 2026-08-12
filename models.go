@@ -25,16 +25,29 @@ type OrphanImage struct {
 	ImageObject
 }
 
-// AppConfig is local settings (loaded from env / config file; never commit secrets).
+// AppConfig is local settings for the UI (SecretKey is never included).
 type AppConfig struct {
-	COSBucket      string   `json:"cosBucket"`
-	COSRegion      string   `json:"cosRegion"`
-	COSPrefix      string   `json:"cosPrefix"` // e.g. "obsidian/"
-	COSBaseURL     string   `json:"cosBaseURL"`
-	VaultPaths     []string `json:"vaultPaths"`
+	COSBucket  string   `json:"cosBucket"`
+	COSRegion  string   `json:"cosRegion"`
+	COSPrefix  string   `json:"cosPrefix"` // e.g. "obsidian/"
+	COSBaseURL string   `json:"cosBaseURL"`
+	VaultPaths []string `json:"vaultPaths"`
 	// VaultPathErrors are non-fatal startup checks (bad roots, missing .obsidian/).
 	VaultPathErrors []string `json:"vaultPathErrors"`
 	ShowThumbnails  bool     `json:"showThumbnails"`
-	SecretIDSet     bool     `json:"secretIdSet"`
-	SecretKeySet    bool     `json:"secretKeySet"`
+	// SecretID is returned so Settings can prefill; SecretKey is never returned.
+	SecretID     string `json:"secretId"`
+	SecretIDSet  bool   `json:"secretIdSet"`
+	SecretKeySet bool   `json:"secretKeySet"`
+}
+
+// COSSettings is the writable COS identity from the Settings UI.
+// Empty SecretKey means leave the existing stored key unchanged.
+type COSSettings struct {
+	SecretID   string `json:"secretId"`
+	SecretKey  string `json:"secretKey"`
+	COSBucket  string `json:"cosBucket"`
+	COSRegion  string `json:"cosRegion"`
+	COSPrefix  string `json:"cosPrefix"`
+	COSBaseURL string `json:"cosBaseURL"`
 }

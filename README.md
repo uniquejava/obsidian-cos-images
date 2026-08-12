@@ -15,10 +15,19 @@ Built with **Go + Wails v3** (React / TypeScript).
 
 ```bash
 cd ~/code/golang-projects/obsidian-cos-images
-cp .env.example .env   # fill locally; never commit .env
+# Optional: .env as a shortcut while developing (never commit)
+cp .env.example .env
 wails3 task dev
 ```
 
+On first launch without config, open **Settings** and save COS credentials + vault paths. Values persist under your OS user config directory.
+
 ## Config
 
-All COS identity and vault paths come from **`.env`** (see `.env.example` placeholders) or the Settings UI (vault paths / thumbnail preference only, stored under your OS user config directory).
+| Source | Role |
+|--------|------|
+| **Settings UI** | Primary — COS identity, vault paths, thumbnails |
+| **OS user config file** | Persistence (`config.json`, mode `0600` when written) |
+| **`.env`** | Dev-only fallback for fields still empty in saved config |
+
+See `.env.example` for env var names. Never commit real secrets.

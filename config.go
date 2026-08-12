@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,8 @@ import (
 )
 
 const (
-	// Only non-identifying defaults may live in source. Account/host/paths come from .env.
+	// Only non-identifying defaults may live in source. Account/host/paths come from
+	// Settings (persisted) or optional .env for development.
 	defaultCOSPrefix  = "obsidian/"
 	appConfigDirName  = "obsidian-cos-images"
 	appConfigFileName = "config.json"
@@ -29,22 +31,35 @@ type runtimeConfig struct {
 }
 
 // persistedSettings is stored under the OS user config directory (never committed).
-// Vault paths and UI prefs only — no COS secrets or account identifiers.
+// Includes COS identity so packaged installs can configure without a .env file.
 type persistedSettings struct {
+	SecretID       string   `json:"secretId,omitempty"`
+	SecretKey      string   `json:"secretKey,omitempty"`
+	COSBucket      string   `json:"cosBucket,omitempty"`
+	COSRegion      string   `json:"cosRegion,omitempty"`
+	COSPrefix      string   `json:"cosPrefix,omitempty"`
+	COSBaseURL     string   `json:"cosBaseURL,omitempty"`
 	VaultPaths     []string `json:"vaultPaths,omitempty"`
 	ShowThumbnails bool     `json:"showThumbnails"`
 }
 
 func loadRuntimeConfig() runtimeConfig {
-	secretID := strings.TrimSpace(os.Getenv("COS_SECRET_ID"))
-	secretKey := strings.TrimSpace(os.Getenv("COS_SECRET_KEY"))
-
-	bucket := strings.TrimSpace(os.Getenv("COS_BUCKET"))
-	region := strings.TrimSpace(os.Getenv("COS_REGION"))
-	prefix := envOr("COS_PREFIX", defaultCOSPrefix)
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("COS_BASE_URL")), "/")
-
 	settings, _ := loadPersistedSettings()
+
+	// Persisted Settings win; env fills empty fields (dev convenience).
+	secretID := firstNonEmpty(settings.SecretID, os.Getenv("COS_SECRET_ID"))
+	secretKey := firstNonEmpty(settings.SecretKey, os.Getenv("COS_SECRET_KEY"))
+	bucket := firstNonEmpty(settings.COSBucket, os.Getenv("COS_BUCKET"))
+	region := firstNonEmpty(settings.COSRegion, os.Getenv("COS_REGION"))
+	prefix := firstNonEmpty(settings.COSPrefix, os.Getenv("COS_PREFIX"))
+	if prefix == "" {
+		prefix = defaultCOSPrefix
+	}
+	baseURL := strings.TrimRight(
+		firstNonEmpty(settings.COSBaseURL, os.Getenv("COS_BASE_URL")),
+		"/",
+	)
+
 	vaultPaths := settings.VaultPaths
 	if len(vaultPaths) == 0 {
 		vaultPaths = parseVaultPaths(os.Getenv("VAULT_PATHS"))
@@ -61,6 +76,7 @@ func loadRuntimeConfig() runtimeConfig {
 			VaultPaths:      vaultPaths,
 			VaultPathErrors: vaultPathErrors,
 			ShowThumbnails:  settings.ShowThumbnails,
+			SecretID:        secretID,
 			SecretIDSet:     secretID != "",
 			SecretKeySet:    secretKey != "",
 		},
@@ -69,28 +85,28 @@ func loadRuntimeConfig() runtimeConfig {
 	}
 }
 
-// requireCOSEnv returns an error if required COS identity env vars are missing.
+// requireCOSEnv returns an error if required COS identity is missing.
 func requireCOSEnv(cfg runtimeConfig) error {
 	var missing []string
 	if cfg.SecretID == "" {
-		missing = append(missing, "COS_SECRET_ID")
+		missing = append(missing, "SecretId")
 	}
 	if cfg.SecretKey == "" {
-		missing = append(missing, "COS_SECRET_KEY")
+		missing = append(missing, "SecretKey")
 	}
 	if cfg.COSBucket == "" {
-		missing = append(missing, "COS_BUCKET")
+		missing = append(missing, "Bucket")
 	}
 	if cfg.COSRegion == "" {
-		missing = append(missing, "COS_REGION")
+		missing = append(missing, "Region")
 	}
 	if cfg.COSBaseURL == "" {
-		missing = append(missing, "COS_BASE_URL")
+		missing = append(missing, "Base URL")
 	}
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: set %s in .env (see .env.example)", ErrMissingCredentials, strings.Join(missing, ", "))
+	return fmt.Errorf("%w: set %s in Settings (or .env for local dev)", ErrMissingCredentials, strings.Join(missing, ", "))
 }
 
 // configFilePathOverride is used by tests; empty means use the real user config dir.
@@ -127,11 +143,23 @@ func loadPersistedSettings() (persistedSettings, error) {
 		return persistedSettings{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	settings.VaultPaths = cleanPaths(settings.VaultPaths)
+	settings.SecretID = strings.TrimSpace(settings.SecretID)
+	settings.SecretKey = strings.TrimSpace(settings.SecretKey)
+	settings.COSBucket = strings.TrimSpace(settings.COSBucket)
+	settings.COSRegion = strings.TrimSpace(settings.COSRegion)
+	settings.COSPrefix = strings.TrimSpace(settings.COSPrefix)
+	settings.COSBaseURL = strings.TrimRight(strings.TrimSpace(settings.COSBaseURL), "/")
 	return settings, nil
 }
 
 func savePersistedSettings(settings persistedSettings) error {
 	settings.VaultPaths = cleanPaths(settings.VaultPaths)
+	settings.SecretID = strings.TrimSpace(settings.SecretID)
+	settings.SecretKey = strings.TrimSpace(settings.SecretKey)
+	settings.COSBucket = strings.TrimSpace(settings.COSBucket)
+	settings.COSRegion = strings.TrimSpace(settings.COSRegion)
+	settings.COSPrefix = strings.TrimSpace(settings.COSPrefix)
+	settings.COSBaseURL = strings.TrimRight(strings.TrimSpace(settings.COSBaseURL), "/")
 	path, err := configFilePath()
 	if err != nil {
 		return err
@@ -143,7 +171,87 @@ func savePersistedSettings(settings persistedSettings) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	// Restrictive mode: file may contain COS secrets.
+	return os.WriteFile(path, data, 0o600)
+}
+
+func saveCOSSettings(in COSSettings) error {
+	cfg, err := resolveCOSIdentity(in)
+	if err != nil {
+		return err
+	}
+	settings, err := loadPersistedSettings()
+	if err != nil {
+		return err
+	}
+	settings.SecretID = cfg.SecretID
+	settings.SecretKey = cfg.SecretKey
+	settings.COSBucket = cfg.COSBucket
+	settings.COSRegion = cfg.COSRegion
+	settings.COSPrefix = cfg.COSPrefix
+	settings.COSBaseURL = cfg.COSBaseURL
+	return savePersistedSettings(settings)
+}
+
+// resolveCOSIdentity builds a runtime COS identity from Settings form input.
+// Empty SecretKey keeps the previously saved (or env) key. Does not persist.
+func resolveCOSIdentity(in COSSettings) (runtimeConfig, error) {
+	secretID := strings.TrimSpace(in.SecretID)
+	secretKey := strings.TrimSpace(in.SecretKey)
+	bucket := strings.TrimSpace(in.COSBucket)
+	region := strings.TrimSpace(in.COSRegion)
+	prefix := strings.TrimSpace(in.COSPrefix)
+	if prefix == "" {
+		prefix = defaultCOSPrefix
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(in.COSBaseURL), "/")
+
+	if secretKey == "" {
+		settings, _ := loadPersistedSettings()
+		secretKey = settings.SecretKey
+	}
+	if secretKey == "" {
+		secretKey = strings.TrimSpace(os.Getenv("COS_SECRET_KEY"))
+	}
+
+	var missing []string
+	if secretID == "" {
+		missing = append(missing, "SecretId")
+	}
+	if secretKey == "" {
+		missing = append(missing, "SecretKey")
+	}
+	if bucket == "" {
+		missing = append(missing, "Bucket")
+	}
+	if region == "" {
+		missing = append(missing, "Region")
+	}
+	if baseURL == "" {
+		missing = append(missing, "Base URL")
+	}
+	if len(missing) > 0 {
+		return runtimeConfig{}, fmt.Errorf("missing required fields: %s", strings.Join(missing, ", "))
+	}
+
+	u, err := url.Parse(baseURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return runtimeConfig{}, fmt.Errorf("Base URL must be an absolute http(s) URL")
+	}
+
+	return runtimeConfig{
+		AppConfig: AppConfig{
+			COSBucket:    bucket,
+			COSRegion:    region,
+			COSPrefix:    prefix,
+			COSBaseURL:   baseURL,
+			SecretID:     secretID,
+			SecretIDSet:  true,
+			SecretKeySet: true,
+		},
+		SecretID:  secretID,
+		SecretKey: secretKey,
+	}, nil
 }
 
 func savePersistedVaultPaths(paths []string) error {
@@ -191,11 +299,13 @@ func cleanPaths(paths []string) []string {
 	return out
 }
 
-func envOr(key, fallback string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
 	}
-	return fallback
+	return ""
 }
 
 func parseVaultPaths(raw string) []string {

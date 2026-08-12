@@ -42,3 +42,11 @@ export function GetThumbnail(key: string): $CancellablePromise<string> {
 export function ListImages(): $CancellablePromise<$models.ImageObject[] | null> {
     return $Call.ByID(2761055860);
 }
+
+/**
+ * TestConnection probes the COS bucket with the Settings form values (does not save).
+ * Empty SecretKey reuses the stored/env key. Returns a short success summary.
+ */
+export function TestConnection(settings: $models.COSSettings): $CancellablePromise<string> {
+    return $Call.ByID(1944058066, settings);
+}

@@ -3,7 +3,7 @@
 
 /**
  * ConfigService exposes local app settings to the UI.
- * Credentials stay in env / local config file; only non-secret status is returned.
+ * SecretKey is never returned after save; only a set/unset flag is exposed.
  * @module
  */
 
@@ -16,17 +16,25 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
- * ConfigFilePath returns where vault settings are stored (for UI display).
+ * ConfigFilePath returns where settings are stored (for UI display).
  */
 export function ConfigFilePath(): $CancellablePromise<string> {
     return $Call.ByID(3180221696);
 }
 
 /**
- * GetConfig returns current config from env / persisted settings (no secrets).
+ * GetConfig returns current config from persisted settings / optional env (no SecretKey).
  */
 export function GetConfig(): $CancellablePromise<$models.AppConfig> {
     return $Call.ByID(2320765359);
+}
+
+/**
+ * SaveCOSSettings persists COS identity for packaged installs (Settings UI).
+ * Empty SecretKey keeps the previously saved key.
+ */
+export function SaveCOSSettings(settings: $models.COSSettings): $CancellablePromise<void> {
+    return $Call.ByID(1034672492, settings);
 }
 
 /**

@@ -80,6 +80,17 @@ function primaryNoteLabel(notes: string[] | null | undefined): {label: string; t
   };
 }
 
+function cosConfigIncomplete(cfg: AppConfig | null): boolean {
+  if (!cfg) return true;
+  return !(
+    cfg.secretIdSet &&
+    cfg.secretKeySet &&
+    Boolean(cfg.cosBucket?.trim()) &&
+    Boolean(cfg.cosRegion?.trim()) &&
+    Boolean(cfg.cosBaseURL?.trim())
+  );
+}
+
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], {type: mime});
   const href = URL.createObjectURL(blob);
@@ -156,6 +167,15 @@ function App() {
   const [configPath, setConfigPath] = useState('');
   const [vaultPathsText, setVaultPathsText] = useState('');
   const [showThumbnails, setShowThumbnails] = useState(false);
+  const [secretId, setSecretId] = useState('');
+  const [secretKey, setSecretKey] = useState('');
+  const [cosBucket, setCosBucket] = useState('');
+  const [cosRegion, setCosRegion] = useState('');
+  const [cosPrefix, setCosPrefix] = useState('obsidian/');
+  const [cosBaseURL, setCosBaseURL] = useState('');
+  const [cosSaveMsg, setCosSaveMsg] = useState('');
+  const [cosTestMsg, setCosTestMsg] = useState('');
+  const [cosTestOk, setCosTestOk] = useState(false);
   const [images, setImages] = useState<ImageObject[]>([]);
   const [refs, setRefs] = useState<ImageRef[]>([]);
   const [orphans, setOrphans] = useState<OrphanImage[]>([]);
@@ -184,6 +204,12 @@ function App() {
     setConfig(cfg);
     setVaultPathsText((cfg.vaultPaths ?? []).join('\n'));
     setShowThumbnails(Boolean(cfg.showThumbnails));
+    setSecretId(cfg.secretId ?? '');
+    setSecretKey(''); // never echo stored key
+    setCosBucket(cfg.cosBucket ?? '');
+    setCosRegion(cfg.cosRegion ?? '');
+    setCosPrefix(cfg.cosPrefix?.trim() ? cfg.cosPrefix : 'obsidian/');
+    setCosBaseURL(cfg.cosBaseURL ?? '');
     const vaultErrs = cfg.vaultPathErrors ?? [];
     if (vaultErrs.length > 0) {
       setError(vaultErrs.join('\n'));
@@ -196,10 +222,15 @@ function App() {
     } catch {
       setConfigPath('');
     }
+    return cfg;
   };
 
   useEffect(() => {
-    refreshConfig().catch((e: unknown) => setError(String(e)));
+    refreshConfig()
+      .then((cfg) => {
+        if (cosConfigIncomplete(cfg)) setTab('settings');
+      })
+      .catch((e: unknown) => setError(String(e)));
   }, []);
 
   useEffect(() => {
@@ -408,6 +439,49 @@ function App() {
       await refreshConfig();
     } catch (e: unknown) {
       setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const currentCOSSettings = () => ({
+    secretId: secretId.trim(),
+    secretKey: secretKey,
+    cosBucket: cosBucket.trim(),
+    cosRegion: cosRegion.trim(),
+    cosPrefix: cosPrefix.trim() || 'obsidian/',
+    cosBaseURL: cosBaseURL.trim(),
+  });
+
+  const saveCOSSettings = async () => {
+    setLoading(true);
+    setError('');
+    setCosSaveMsg('');
+    setCosTestMsg('');
+    try {
+      await ConfigService.SaveCOSSettings(currentCOSSettings());
+      setSecretKey('');
+      setCosSaveMsg('COS settings saved.');
+      await refreshConfig();
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const testCOSConnection = async () => {
+    setLoading(true);
+    setError('');
+    setCosTestMsg('');
+    setCosTestOk(false);
+    try {
+      const msg = await COSService.TestConnection(currentCOSSettings());
+      setCosTestMsg(msg ?? 'OK');
+      setCosTestOk(true);
+    } catch (e: unknown) {
+      setCosTestMsg(String(e));
+      setCosTestOk(false);
     } finally {
       setLoading(false);
     }
@@ -658,7 +732,106 @@ function App() {
         )}
 
         {tab === 'settings' && (
-          <div className="panel section">
+          <div className="panel section settings-scroll">
+            {cosConfigIncomplete(config) && (
+              <div className="setup-banner">
+                First-run setup: enter your Tencent COS credentials and bucket below, then add at
+                least one Obsidian vault path. Optional <code>.env</code> is only for local
+                development.
+              </div>
+            )}
+
+            <h3>Tencent COS</h3>
+            <p className="muted">
+              Saved to the local config file (mode 0600). SecretKey is never shown after save —
+              leave the field blank to keep the existing key. Optional <code>.env</code> fills
+              empty fields for developers.
+            </p>
+            {configPath && (
+              <p className="muted">
+                Config file: <code>{configPath}</code>
+              </p>
+            )}
+            <div className="settings-form">
+              <label>
+                SecretId
+                <input
+                  type="text"
+                  autoComplete="off"
+                  value={secretId}
+                  onChange={(e) => setSecretId(e.target.value)}
+                  placeholder="AKID…"
+                />
+              </label>
+              <label>
+                SecretKey
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={secretKey}
+                  onChange={(e) => setSecretKey(e.target.value)}
+                  placeholder={
+                    config?.secretKeySet ? '•••••••• (leave blank to keep)' : 'Required'
+                  }
+                />
+              </label>
+              <label>
+                Bucket
+                <input
+                  type="text"
+                  value={cosBucket}
+                  onChange={(e) => setCosBucket(e.target.value)}
+                  placeholder="name-appid"
+                />
+              </label>
+              <label>
+                Region
+                <input
+                  type="text"
+                  value={cosRegion}
+                  onChange={(e) => setCosRegion(e.target.value)}
+                  placeholder="ap-shanghai"
+                />
+              </label>
+              <label>
+                Object prefix
+                <input
+                  type="text"
+                  value={cosPrefix}
+                  onChange={(e) => setCosPrefix(e.target.value)}
+                  placeholder="obsidian/"
+                />
+              </label>
+              <label className="settings-span-2">
+                Base URL
+                <input
+                  type="text"
+                  value={cosBaseURL}
+                  onChange={(e) => setCosBaseURL(e.target.value)}
+                  placeholder="https://bucket.cos.region.myqcloud.com"
+                />
+              </label>
+            </div>
+            <div className="stack" style={{marginTop: 12}}>
+              <button type="button" className="primary" onClick={saveCOSSettings} disabled={loading}>
+                Save COS settings
+              </button>
+              <button type="button" onClick={testCOSConnection} disabled={loading}>
+                {loading ? 'Working…' : 'Test connection'}
+              </button>
+              {cosSaveMsg && <span className="muted">{cosSaveMsg}</span>}
+              <span className="muted">
+                Status:{' '}
+                {config?.secretIdSet && config?.secretKeySet ? 'credentials set' : 'credentials missing'}
+                {config?.cosBucket ? ` · ${config.cosBucket}` : ''}
+              </span>
+            </div>
+            {cosTestMsg && (
+              <pre className={cosTestOk ? 'ok-box' : 'error-box'} style={{marginTop: 12, marginLeft: 0, marginRight: 0}}>
+                {cosTestMsg}
+              </pre>
+            )}
+
             <h3>Thumbnails</h3>
             <p className="muted">
               Default off. When enabled, 64px thumbs are fetched once (COS <code>imageMogr2</code>)
@@ -680,19 +853,12 @@ function App() {
             <p className="muted">
               One Obsidian vault root per line (the folder that contains{' '}
               <code>.obsidian/</code>). Home, <code>/</code>, and similar broad
-              paths are rejected so a scan cannot walk the whole disk. Saved to
-              local config (no secrets). Env <code>VAULT_PATHS</code> is used only
-              when no saved paths exist.
+              paths are rejected so a scan cannot walk the whole disk.
             </p>
             {config?.vaultPathErrors && config.vaultPathErrors.length > 0 && (
               <pre className="error-box" style={{whiteSpace: 'pre-wrap'}}>
                 {config.vaultPathErrors.join('\n')}
               </pre>
-            )}
-            {configPath && (
-              <p className="muted">
-                Config file: <code>{configPath}</code>
-              </p>
             )}
             <textarea
               value={vaultPathsText}

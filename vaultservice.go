@@ -37,10 +37,10 @@ type VaultScanProgress struct {
 func (s *VaultService) ScanReferences() ([]ImageRef, error) {
 	cfg := loadRuntimeConfig()
 	if cfg.COSBaseURL == "" {
-		return nil, fmt.Errorf("%w: set COS_BASE_URL in .env (see .env.example)", ErrMissingCredentials)
+		return nil, fmt.Errorf("%w: set Base URL in Settings", ErrMissingCredentials)
 	}
 	if len(cfg.VaultPaths) == 0 {
-		return nil, fmt.Errorf("no vault paths configured: set VAULT_PATHS in .env or save paths in Settings")
+		return nil, fmt.Errorf("no vault paths configured: save paths in Settings")
 	}
 	refs, err := scanVaultReferences(cfg.VaultPaths, cfg.COSBaseURL)
 	if err != nil {
@@ -53,10 +53,10 @@ func (s *VaultService) ScanReferences() ([]ImageRef, error) {
 func (s *VaultService) FindNotesUsing(urlOrKey string) ([]string, error) {
 	cfg := loadRuntimeConfig()
 	if cfg.COSBaseURL == "" {
-		return nil, fmt.Errorf("%w: set COS_BASE_URL in .env (see .env.example)", ErrMissingCredentials)
+		return nil, fmt.Errorf("%w: set Base URL in Settings", ErrMissingCredentials)
 	}
 	if len(cfg.VaultPaths) == 0 {
-		return nil, fmt.Errorf("no vault paths configured: set VAULT_PATHS in .env or save paths in Settings")
+		return nil, fmt.Errorf("no vault paths configured: save paths in Settings")
 	}
 	matcher := newCOSURLMatcher(cfg.COSBaseURL)
 	key, ok := matcher.keyFromURLOrKey(urlOrKey)
@@ -81,7 +81,7 @@ func (s *VaultService) ReadNote(notePath string) (string, error) {
 	}
 	cfg := loadRuntimeConfig()
 	if len(cfg.VaultPaths) == 0 {
-		return "", fmt.Errorf("no vault paths configured: set VAULT_PATHS in .env or save paths in Settings")
+		return "", fmt.Errorf("no vault paths configured: save paths in Settings")
 	}
 
 	absNote, err := filepath.Abs(notePath)

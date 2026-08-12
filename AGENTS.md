@@ -10,7 +10,7 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 
 ## Status (as of 2026-08-12)
 
-**v1 feature set is implemented.**
+**v1 feature set is implemented.** Settings-first COS config added so packaged installs need no `.env`.
 
 | Area | Status |
 |------|--------|
@@ -19,28 +19,30 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 | Orphans + CSV/JSON export | Done |
 | Filters (size / date / page size) | Done |
 | Thumbnails | Done; **default OFF**; local disk cache |
-| Config | From **`.env` only** (no account/host/path defaults in source) |
+| Config | **Settings UI** (persisted) + optional `.env` fallback for empty fields |
 
 ## Secrets & local identity (important)
 
 - **Committed code and `.env.example` must not contain** real `SecretId`/`SecretKey`, bucket/AppId, base URL, or personal absolute paths.
-- Runtime values live in **gitignored `.env`** (and optional OS user config for vault paths / UI prefs only).
-- Persisted UI settings path (macOS): `~/Library/Application Support/obsidian-cos-images/config.json` — **local only**, never commit.
+- **Primary:** Settings UI → OS user config file (includes COS secrets; file mode `0600`).
+- **Dev fallback:** gitignored `.env` fills fields that are still empty in the saved config.
+- Persisted path (macOS): `~/Library/Application Support/obsidian-cos-images/config.json` — **local only**, never commit.
 - Thumbnail cache (macOS): `~/Library/Caches/obsidian-cos-images/thumbs/`.
+- `GetConfig` may return SecretId for form prefilling; **SecretKey is never returned** (only `secretKeySet`).
 
 ## Layout
 
 ```
 main.go              # window + services; godotenv.Load()
-models.go
-config.go            # reads COS_* / VAULT_PATHS from env; no personal defaults
-configservice.go
+models.go            # AppConfig, COSSettings, …
+config.go            # persisted Settings + optional env fallback
+configservice.go     # GetConfig, SaveCOSSettings, SaveVaultPaths, …
 cosservice.go / thumbcache.go
 cosurl.go / vaultservice.go
 cleanupservice.go / export.go
 frontend/src/App.tsx
 docs/REQUIREMENTS.md
-.env.example         # placeholders only
+.env.example         # placeholders only (dev convenience)
 ```
 
 Module: `github.com/uniquejava/obsidian-cos-images`  
@@ -51,15 +53,17 @@ Sibling: `../video-editor-wails`
 
 ```bash
 cd ~/code/golang-projects/obsidian-cos-images
+# Option A (recommended for product testing): leave .env empty; fill Settings in the UI
+# Option B (dev shortcut):
 cp .env.example .env   # fill real values locally; never commit .env
 wails3 task dev
 ```
 
-Required in `.env`: `COS_SECRET_ID`, `COS_SECRET_KEY`, `COS_BUCKET`, `COS_REGION`, `COS_BASE_URL`.  
-Optional: `COS_PREFIX` (defaults to `obsidian/`), `VAULT_PATHS` (or set in Settings UI).
+Required identity (Settings or `.env`): SecretId, SecretKey, Bucket, Region, Base URL.  
+Optional: Prefix (defaults to `obsidian/`), vault paths, thumbnails.
 
 ```bash
-wails3 generate bindings
+wails3 generate bindings -ts -i
 wails3 build && wails3 package
 ```
 
@@ -90,6 +94,6 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Next session starting point
 
-1. Ensure local `.env` is filled; live-test carefully. UI lists stay empty until you click Refresh (no auto-fetch on mount / HMR).
+1. Live-test Settings save on a clean config (no `.env`) and with `.env` fallback.
 2. Optional UX: virtualized table, note file picker.
 3. Keep docs free of personal bucket/path values when editing.

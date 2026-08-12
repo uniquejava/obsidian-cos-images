@@ -152,6 +152,61 @@ func (s *COSService) DeleteImages(keys []string) error {
 	return nil
 }
 
+// TestConnection probes the COS bucket with the Settings form values (does not save).
+// Empty SecretKey reuses the stored/env key. Returns a short success summary.
+func (s *COSService) TestConnection(settings COSSettings) (string, error) {
+	cfg, err := resolveCOSIdentity(settings)
+	if err != nil {
+		return "", err
+	}
+	client, err := newCOSClient(cfg)
+	if err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if _, err := client.Bucket.Head(ctx); err != nil {
+		return "", fmt.Errorf("bucket access failed (check SecretId/SecretKey, Bucket, Region): %w", err)
+	}
+
+	result, _, err := client.Bucket.Get(ctx, &cos.BucketGetOptions{
+		Prefix:  cfg.COSPrefix,
+		MaxKeys: 1,
+	})
+	if err != nil {
+		return "", fmt.Errorf("list under prefix %q failed: %w", cfg.COSPrefix, err)
+	}
+
+	n := 0
+	if result != nil {
+		for _, obj := range result.Contents {
+			if obj.Key != "" && !strings.HasSuffix(obj.Key, "/") {
+				n++
+			}
+		}
+	}
+	if n == 0 {
+		return fmt.Sprintf(
+			"OK — bucket %s reachable; prefix %q is readable (no objects found yet). Base URL host: %s",
+			cfg.COSBucket, cfg.COSPrefix, hostOf(cfg.COSBaseURL),
+		), nil
+	}
+	return fmt.Sprintf(
+		"OK — bucket %s reachable; prefix %q is readable. Base URL host: %s",
+		cfg.COSBucket, cfg.COSPrefix, hostOf(cfg.COSBaseURL),
+	), nil
+}
+
+func hostOf(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return baseURL
+	}
+	return u.Host
+}
+
 func newCOSClient(cfg runtimeConfig) (*cos.Client, error) {
 	bucketURL, err := url.Parse(fmt.Sprintf("https://%s.cos.%s.myqcloud.com", cfg.COSBucket, cfg.COSRegion))
 	if err != nil {
