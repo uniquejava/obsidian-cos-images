@@ -10,7 +10,7 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 
 ## Status
 
-Skeleton only. Service methods return `ErrNotImplemented` except `ConfigService.GetConfig` (stub defaults).
+COS list wired: `ConfigService.GetConfig` reads `.env` / env; `COSService.ListImages` lists prefix objects with size + UploadTime sort. Vault / orphan / cascade still stubs.
 
 ## Layout
 
@@ -73,7 +73,6 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Next session starting point
 
-1. Wire Tencent COS Go SDK using `.env` / env vars from `.env.example`.
-2. Implement `COSService.ListImages` + UI table sorted by `UploadTime`, showing `Size`.
-3. Implement `VaultService.ScanReferences` over vault paths from config.
-4. Then orphans + cascade.
+1. Implement `VaultService.ScanReferences` over vault paths from config.
+2. Orphans + cascade (dry-run first).
+3. Filters (size / date / unused) and thumbnails.

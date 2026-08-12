@@ -11,6 +11,8 @@ import (
 var assets embed.FS
 
 func main() {
+	loadDotEnv()
+
 	app := application.New(application.Options{
 		Name:        "Obsidian COS Images",
 		Description: "Manage PicGo / Tencent COS images used by Obsidian Markdown notes",

@@ -8,18 +8,9 @@ func NewConfigService() *ConfigService {
 	return &ConfigService{}
 }
 
-// GetConfig returns current config (stubs until implementation).
+// GetConfig returns current config from env / .env (no secrets).
 func (s *ConfigService) GetConfig() (AppConfig, error) {
-	return AppConfig{
-		COSBucket:  "REDACTED_BUCKET",
-		COSRegion:  "ap-shanghai",
-		COSPrefix:  "obsidian/",
-		COSBaseURL: "https://example-bucket.cos.ap-testing.myqcloud.com",
-		VaultPaths: []string{
-			// Default Obsidian iCloud container; UI should allow editing.
-			"",
-		},
-	}, nil
+	return loadRuntimeConfig().AppConfig, nil
 }
 
 // SaveVaultPaths updates which vault roots are scanned for Markdown references.
