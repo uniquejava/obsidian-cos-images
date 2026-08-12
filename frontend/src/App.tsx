@@ -167,6 +167,7 @@ function App() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [confirmDeleteCount, setConfirmDeleteCount] = useState(false);
   const [previewImage, setPreviewImage] = useState<ImageObject | null>(null);
   const [noteReader, setNoteReader] = useState<{paths: string[]; active: string} | null>(null);
   const [imagesPageSize, setImagesPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -299,6 +300,7 @@ function App() {
   };
 
   const toggleKey = (key: string) => {
+    setConfirmDeleteCount(false);
     setSelectedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -307,14 +309,25 @@ function App() {
     });
   };
 
-  const deleteSelected = async (keys: string[], label: string) => {
+  const toggleSelectAllVisible = (keys: string[]) => {
+    setConfirmDeleteCount(false);
+    setSelectedKeys((prev) => {
+      const allOn = keys.length > 0 && keys.every((k) => prev.has(k));
+      const next = new Set(prev);
+      if (allOn) {
+        for (const k of keys) next.delete(k);
+      } else {
+        for (const k of keys) next.add(k);
+      }
+      return next;
+    });
+  };
+
+  const deleteSelected = async (keys: string[]) => {
     if (keys.length === 0) return;
-    const ok = window.confirm(
-      `Delete ${keys.length} COS object(s) (${label})?\nThis cannot be undone.`,
-    );
-    if (!ok) return;
     setLoading(true);
     setError('');
+    setConfirmDeleteCount(false);
     try {
       await COSService.DeleteImages(keys);
       setSelectedKeys(new Set());
@@ -464,6 +477,7 @@ function App() {
             className={`nav-btn${tab === t.id ? ' active' : ''}`}
             onClick={() => {
               setTab(t.id);
+              setConfirmDeleteCount(false);
               if (t.id !== 'images' && t.id !== 'orphans') {
                 setPreviewImage(null);
                 setNoteReader(null);
@@ -582,20 +596,37 @@ function App() {
                   ))}
                 </select>
               </label>
-              <button
-                type="button"
-                disabled={selectedKeys.size === 0 || loading}
-                onClick={() => deleteSelected([...selectedKeys], 'orphans')}
-              >
-                Delete ({selectedKeys.size})
-              </button>
-              <button
-                type="button"
-                disabled={orphans.length === 0 || loading}
-                onClick={() => deleteSelected(orphans.map((o) => o.key), 'all orphans')}
-              >
-                Delete all
-              </button>
+              {!confirmDeleteCount ? (
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={selectedKeys.size === 0 || loading}
+                  onClick={() => setConfirmDeleteCount(true)}
+                >
+                  Delete ({selectedKeys.size})
+                </button>
+              ) : (
+                <>
+                  <span className="toolbar-stat">
+                    Delete {selectedKeys.size} object(s)? This cannot be undone.
+                  </span>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={selectedKeys.size === 0 || loading}
+                    onClick={() => void deleteSelected([...selectedKeys])}
+                  >
+                    {loading ? 'Deleting…' : 'Confirm delete'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setConfirmDeleteCount(false)}
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
               <span className="toolbar-stat">
                 Showing {visibleOrphans.length} / {orphans.length}
                 {' · '}
@@ -611,6 +642,7 @@ function App() {
                   selectedKeys={selectedKeys}
                   showThumbnails={false}
                   onToggle={toggleKey}
+                  onToggleAll={toggleSelectAllVisible}
                   onOpenNote={openNoteReader}
                   onPreview={setPreviewImage}
                 />
@@ -960,6 +992,7 @@ function ImageTable({
   selectedKeys,
   showThumbnails,
   onToggle,
+  onToggleAll,
   onOpenNote,
   onPreview,
 }: {
@@ -969,16 +1002,33 @@ function ImageTable({
   selectedKeys: Set<string>;
   showThumbnails: boolean;
   onToggle: (key: string) => void;
+  onToggleAll?: (keys: string[]) => void;
   onOpenNote: (notes: string[] | null | undefined) => void;
   onPreview: (img: ImageObject) => void;
 }) {
   const colSpan = (selectable ? 1 : 0) + (showThumbnails ? 1 : 0) + 6;
+  const rowKeys = rows.map((r) => r.key);
+  const allSelected = rowKeys.length > 0 && rowKeys.every((k) => selectedKeys.has(k));
+  const someSelected = rowKeys.some((k) => selectedKeys.has(k));
   return (
     <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
-            {selectable && <th className="col-check" aria-label="Select" />}
+            {selectable && (
+              <th className="col-check" title="Select all visible">
+                <input
+                  type="checkbox"
+                  aria-label="Select all visible"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someSelected && !allSelected;
+                  }}
+                  disabled={rows.length === 0 || !onToggleAll}
+                  onChange={() => onToggleAll?.(rowKeys)}
+                />
+              </th>
+            )}
             {showThumbnails && <th className="col-thumb">Thumb</th>}
             <th className="col-key">Object key</th>
             <th className="col-note">Note</th>
