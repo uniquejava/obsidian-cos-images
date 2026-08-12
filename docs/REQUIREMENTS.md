@@ -127,4 +127,5 @@ CleanupService  — ListOrphans, ExportOrphans
 - [x] All COS + vault settings editable in Settings UI and persisted locally.
 - [x] Fresh install works without a `.env` file after Settings save.
 - [x] Filter images by min size (incl. ≥500 KB preset).
+- [x] Filter by upload year (one year or all) and note title/keyword (fuzzy).
 - [x] Compress preview before overwrite; same-key replace; no Markdown edits.

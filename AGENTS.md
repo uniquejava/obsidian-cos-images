@@ -10,17 +10,18 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 
 ## Status (as of 2026-08-12)
 
-**v1 feature set is implemented.** Settings-first COS config added so packaged installs need no `.env`.
+**v1 feature set is implemented.** Settings-first COS config; packaged `.app` needs no `.env`.
 
 | Area | Status |
 |------|--------|
 | COS list + delete | Done |
 | Vault Markdown scan | Done |
 | Orphans + CSV/JSON export | Done |
-| Filters (size / date / page size) | Done (Min KB + **≥500 KB** preset) |
+| Filters | Done — Min KB / **≥500 KB**, upload **year** (one or all), note title/keyword fuzzy, page size 20–2000 / all |
 | Recompress / same-key replace | Done (JPEG quality; PNG via **pngquant**/oxipng TinyPNG-style) |
 | Thumbnails | Done; **default OFF**; local disk cache |
 | Config | **Settings UI** (persisted) + optional `.env` fallback for empty fields |
+| macOS package | `wails3 package` → `bin/obsidian-cos-images.app` (~13 MB arm64) |
 
 ## Secrets & local identity (important)
 
@@ -43,6 +44,7 @@ cosurl.go / vaultservice.go
 cleanupservice.go / export.go
 frontend/src/App.tsx
 docs/REQUIREMENTS.md
+docs/screenshot.png  # UI screenshot (README)
 .env.example         # placeholders only (dev convenience)
 ```
 
@@ -66,6 +68,8 @@ Optional: Prefix (defaults to `obsidian/`), vault paths, thumbnails.
 ```bash
 wails3 generate bindings -ts -i
 wails3 build && wails3 package
+# open bin/obsidian-cos-images.app
+# cp -R bin/obsidian-cos-images.app "/Applications/Obsidian COS Images.app"
 ```
 
 ## Network / proxy (China)
@@ -97,6 +101,6 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Next session starting point
 
-1. Live-test recompress on real ≥500 KB objects (JPEG quality / max-edge; confirm Obsidian still renders after overwrite).
-2. Optional: batch recompress for filtered rows; CDN purge guidance.
-3. Keep docs free of personal bucket/path values when editing.
+1. Optional: batch recompress for filtered rows; CDN purge guidance.
+2. Keep docs free of personal bucket/path values when editing.
+3. Screenshot: `docs/screenshot.png` (linked from README).

@@ -7,9 +7,9 @@
 			"ProductVersion": "0.1.0",
 			"CompanyName": "cyper",
 			"FileDescription": "Manage PicGo / Tencent COS images used by Obsidian Markdown notes",
-			"LegalCopyright": "© 2026, My Company",
+			"LegalCopyright": "© 2026, Cyper",
 			"ProductName": "Obsidian COS Images",
-			"Comments": "This is a comment"
+			"Comments": "Desktop image manager for Obsidian + Tencent COS"
 		}
 	}
 }
