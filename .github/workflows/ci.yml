@@ -31,6 +31,15 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.6
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # //go:embed all:frontend/dist requires the production frontend to exist
+      # before `go test` / `go build` can compile the main package.
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
       - name: Test
         run: go test ./...
 
