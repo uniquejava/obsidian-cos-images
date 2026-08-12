@@ -330,7 +330,6 @@ function App() {
     try {
       await ConfigService.SaveVaultPaths(paths);
       await refreshConfig();
-      await loadImagesAndRefs();
     } catch (e: unknown) {
       setError(String(e));
     } finally {
