@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm';
 import {
   AppConfig,
   CleanupService,
+  CompressOptions,
+  CompressPreview,
   ConfigService,
   COSService,
   ImageObject,
@@ -12,6 +14,8 @@ import {
   OrphanImage,
   VaultService,
 } from '../bindings/github.com/uniquejava/obsidian-cos-images';
+
+const DEFAULT_COMPRESS: CompressOptions = {quality: 80, maxEdge: 2560};
 
 type Tab = 'images' | 'orphans' | 'settings';
 type SortBy = 'uploadTime' | 'size';
@@ -210,12 +214,13 @@ function App() {
   const toastTimer = useRef<number | null>(null);
   const [scanStatus, setScanStatus] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('uploadTime');
-  const [minSizeMB, setMinSizeMB] = useState(0);
+  const [minSizeKB, setMinSizeKB] = useState(0);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [confirmDeleteCount, setConfirmDeleteCount] = useState(false);
   const [previewImage, setPreviewImage] = useState<ImageObject | null>(null);
+  const [compressImage, setCompressImage] = useState<ImageObject | null>(null);
   const [noteReader, setNoteReader] = useState<{paths: string[]; active: string} | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [imagesPageSize, setImagesPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -342,7 +347,7 @@ function App() {
   };
 
   const filteredImages = useMemo(() => {
-    const minBytes = minSizeMB > 0 ? minSizeMB * 1024 * 1024 : 0;
+    const minBytes = minSizeKB > 0 ? minSizeKB * 1024 : 0;
     const fromTs = dayStart(dateFrom);
     const toTs = dayEnd(dateTo);
     let list = images.filter((img) => (img.size || 0) >= minBytes);
@@ -359,7 +364,7 @@ function App() {
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       return new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime();
     });
-  }, [images, minSizeMB, sortBy, dateFrom, dateTo]);
+  }, [images, minSizeKB, sortBy, dateFrom, dateTo]);
 
   const visibleImages = applyPageSize(filteredImages, imagesPageSize);
   const totalBytes = filteredImages.reduce((s, img) => s + (img.size || 0), 0);
@@ -547,9 +552,13 @@ function App() {
   };
 
   useEffect(() => {
-    if (!previewImage && !noteReader && !aboutOpen) return;
+    if (!previewImage && !noteReader && !aboutOpen && !compressImage) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (compressImage) {
+          setCompressImage(null);
+          return;
+        }
         if (aboutOpen) {
           setAboutOpen(false);
           return;
@@ -561,7 +570,7 @@ function App() {
         if (previewImage) setPreviewImage(null);
         return;
       }
-      if (aboutOpen || noteReader || !previewImage) return;
+      if (compressImage || aboutOpen || noteReader || !previewImage) return;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         stepPreview(-1);
@@ -574,7 +583,7 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [previewImage, noteReader, aboutOpen, previewIndex, previewList]);
+  }, [previewImage, noteReader, aboutOpen, compressImage, previewIndex, previewList]);
 
   return (
     <div className="app no-drag">
@@ -638,16 +647,27 @@ function App() {
                 </select>
               </label>
               <label>
-                Min MB
+                Min KB
                 <input
                   type="number"
                   min={0}
-                  step={0.1}
-                  value={minSizeMB}
-                  onChange={(e) => setMinSizeMB(Number(e.target.value) || 0)}
-                  style={{width: 64}}
+                  step={50}
+                  value={minSizeKB}
+                  onChange={(e) => setMinSizeKB(Number(e.target.value) || 0)}
+                  style={{width: 72}}
                 />
               </label>
+              <button
+                type="button"
+                className={minSizeKB === 500 ? 'primary' : undefined}
+                title="Show images at least 500 KB (common without PicGo compress)"
+                onClick={() => {
+                  setMinSizeKB(500);
+                  setSortBy('size');
+                }}
+              >
+                ≥500 KB
+              </button>
               <label>
                 From
                 <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -916,7 +936,35 @@ function App() {
           onPrev={() => stepPreview(-1)}
           onNext={() => stepPreview(1)}
           onDelete={tab === 'orphans' ? deletePreviewOrphan : undefined}
+          onCompress={
+            tab === 'images'
+              ? () => {
+                  setCompressImage(previewImage);
+                }
+              : undefined
+          }
           deleting={loading}
+        />
+      )}
+      {compressImage && (
+        <CompressDialog
+          image={compressImage}
+          onClose={() => setCompressImage(null)}
+          onReplaced={(updated) => {
+            thumbMemory.delete(updated.key);
+            setImages((prev) =>
+              prev.map((img) => (img.key === updated.key ? {...img, ...updated} : img)),
+            );
+            setPreviewImage((cur) =>
+              cur && cur.key === updated.key ? {...cur, ...updated} : cur,
+            );
+            setCompressImage(null);
+            pushToast(
+              'success',
+              `Replaced ${updated.key} (${formatBytes(compressImage.size)} → ${formatBytes(updated.size)}). Same URL; CDN/Obsidian may cache briefly.`,
+            );
+          }}
+          onError={reportError}
         />
       )}
       {noteReader && (
@@ -1110,6 +1158,7 @@ function ImageLightbox({
   onPrev,
   onNext,
   onDelete,
+  onCompress,
   deleting,
 }: {
   image: ImageObject;
@@ -1119,6 +1168,7 @@ function ImageLightbox({
   onPrev: () => void;
   onNext: () => void;
   onDelete?: () => void | Promise<void>;
+  onCompress?: () => void;
   deleting?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
@@ -1172,6 +1222,20 @@ function ImageLightbox({
             >
               Next →
             </button>
+            {onCompress && (
+              <button
+                type="button"
+                className="primary"
+                disabled={deleting}
+                title="Preview a compressed version, then overwrite the same COS key"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCompress();
+                }}
+              >
+                Compress…
+              </button>
+            )}
             {onDelete && !confirmDelete && (
               <button
                 type="button"
@@ -1245,6 +1309,184 @@ function ImageLightbox({
               onError={() => setFailed(true)}
             />
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompressDialog({
+  image,
+  onClose,
+  onReplaced,
+  onError,
+}: {
+  image: ImageObject;
+  onClose: () => void;
+  onReplaced: (updated: ImageObject) => void;
+  onError: (e: unknown) => void;
+}) {
+  const [opts, setOpts] = useState<CompressOptions>({...DEFAULT_COMPRESS});
+  const [preview, setPreview] = useState<CompressPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const isJPEG = /\.jpe?g$/i.test(image.key);
+
+  const runPreview = async (nextOpts: CompressOptions) => {
+    setBusy(true);
+    setConfirmReplace(false);
+    try {
+      const result = await COSService.PreviewCompress(image.key, nextOpts);
+      setPreview(result);
+      setOpts({quality: result.quality, maxEdge: result.maxEdge});
+    } catch (e: unknown) {
+      setPreview(null);
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void runPreview({...DEFAULT_COMPRESS});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per image.key
+  }, [image.key]);
+
+  const doReplace = async () => {
+    setBusy(true);
+    try {
+      const updated = await COSService.ReplaceWithCompressed(image.key, opts);
+      onReplaced(updated);
+    } catch (e: unknown) {
+      onError(e);
+      setConfirmReplace(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saved =
+    preview && preview.originalSize > 0
+      ? Math.round((1 - preview.compressedSize / preview.originalSize) * 100)
+      : 0;
+
+  return (
+    <div
+      className="lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Compress and replace"
+      onClick={onClose}
+    >
+      <div className="lightbox-card compress-card" onClick={(e) => e.stopPropagation()}>
+        <div className="lightbox-bar">
+          <div className="lightbox-meta">
+            <strong>Compress &amp; replace</strong>
+            <div className="muted" style={{marginTop: 2}}>
+              Overwrites the same COS key (<code>{image.key}</code>) — Markdown URLs unchanged.
+            </div>
+          </div>
+          <div className="lightbox-actions">
+            <button type="button" onClick={onClose} disabled={busy}>
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="compress-controls">
+          <label>
+            {isJPEG ? 'JPEG quality' : 'PNG quality (pngquant)'}
+            <input
+              type="range"
+              min={40}
+              max={95}
+              step={5}
+              value={opts.quality}
+              disabled={busy}
+              onChange={(e) => setOpts((o) => ({...o, quality: Number(e.target.value)}))}
+            />
+            <span className="mono">{opts.quality}</span>
+          </label>
+          <label>
+            Max long edge
+            <select
+              value={opts.maxEdge}
+              disabled={busy}
+              onChange={(e) => setOpts((o) => ({...o, maxEdge: Number(e.target.value)}))}
+            >
+              <option value={2560}>2560px</option>
+              <option value={1920}>1920px</option>
+              <option value={1280}>1280px</option>
+              <option value={0}>No resize</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void runPreview(opts)}
+          >
+            {busy && !preview ? 'Working…' : 'Refresh preview'}
+          </button>
+          {preview?.smaller && !confirmReplace && (
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              onClick={() => setConfirmReplace(true)}
+            >
+              Replace on COS
+            </button>
+          )}
+          {preview?.smaller && confirmReplace && (
+            <>
+              <span className="toolbar-stat">Overwrite same key?</span>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy}
+                onClick={() => void doReplace()}
+              >
+                {busy ? 'Uploading…' : 'Confirm replace'}
+              </button>
+              <button type="button" disabled={busy} onClick={() => setConfirmReplace(false)}>
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="compress-stats muted" style={{padding: '6px 14px', fontSize: 12}}>
+          {isJPEG
+            ? 'JPEG is re-encoded at the quality above.'
+            : 'PNG uses pngquant (TinyPNG-style palette). Requires `brew install pngquant` (optional: oxipng).'}
+        </div>
+
+        {preview && (
+          <div className="compress-stats">
+            {formatBytes(preview.originalSize)} → {formatBytes(preview.compressedSize)}
+            {preview.smaller ? ` (−${saved}%)` : ' (not smaller)'}
+            {preview.width > 0 ? ` · ${preview.width}×${preview.height}` : ''}
+            {preview.format ? ` · ${preview.format}` : ''}
+            {preview.message ? ` · ${preview.message}` : ''}
+          </div>
+        )}
+
+        <div className="compress-compare">
+          <div className="compress-pane">
+            <div className="compress-pane-label">Original · {formatBytes(image.size)}</div>
+            <img src={image.url} alt="Original" />
+          </div>
+          <div className="compress-pane">
+            <div className="compress-pane-label">
+              Compressed
+              {preview ? ` · ${formatBytes(preview.compressedSize)}` : ''}
+            </div>
+            {preview?.compressedDataURL ? (
+              <img src={preview.compressedDataURL} alt="Compressed preview" />
+            ) : (
+              <div className="lightbox-error">{busy ? 'Compressing…' : 'No preview yet.'}</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

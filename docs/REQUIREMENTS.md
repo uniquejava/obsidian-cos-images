@@ -63,8 +63,22 @@ Ignore non-configured hosts for orphan logic.
 ### 4. Image size awareness
 
 - Display COS `Size`; sort by size to find large uploads.
+- Filter by minimum size (KB); quick preset for **≥500 KB** (legacy blog uploads without PicGo compress).
 
-### 5. First-run / Settings
+### 5. Recompress / replace (same object key)
+
+For large images already on COS (often >500 KB because PicGo compress was not used):
+
+- From Images (preview), offer **Compress & replace**.
+- **Preview first:** download object → compress locally → show side-by-side original vs compressed with byte sizes (and quality / max-edge controls) before any upload.
+- **Seamless replace:** `PutObject` overwrites the **same object key** (original filename / path). Markdown URLs stay unchanged; no vault edits.
+- Keep output format matched to the key extension (`.jpg` / `.jpeg` / `.png`). Unsupported types are skipped with a clear message.
+- **PNG** uses TinyPNG-style compression via local **`pngquant`** (libimagequant; optional **`oxipng`** second pass). Install with `brew install pngquant oxipng`. Go `image/png` re-encode is not used (it often grows files).
+- **JPEG** uses standard quality re-encode.
+- Defaults: quality ~80, max long edge 2560px (0 = no resize; configurable in the preview UI). If compressed is not smaller, warn and do not overwrite by default.
+- After replace: refresh list size; invalidate that key’s local thumbnail cache. Note that CDN / Obsidian may briefly show a cached older image for the same URL.
+
+### 6. First-run / Settings
 
 - Packaged app users initialize via Settings (no requirement to edit `.env`).
 - If COS identity is incomplete, surface a clear prompt and steer users to Settings.
@@ -83,7 +97,8 @@ Ignore non-configured hosts for orphan logic.
 
 ```
 ConfigService   — GetConfig, SaveCOSSettings, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
-COSService      — ListImages, DeleteImages, TestConnection, GetThumbnail, ClearThumbnailCache
+COSService      — ListImages, DeleteImages, TestConnection, GetThumbnail, ClearThumbnailCache,
+                  PreviewCompress, ReplaceWithCompressed
 VaultService    — ScanReferences, FindNotesUsing, ReadNote  (+ event vault:scan)
 CleanupService  — ListOrphans, ExportOrphans
 ```
@@ -94,11 +109,13 @@ CleanupService  — ListOrphans, ExportOrphans
 |-------|--------|--------|
 | 1–4 | Config/list, vault, orphans, polish | Done |
 | 5 | Settings-first COS config (UI + persist) | Done |
+| 6 | Recompress / replace large images (preview + same-key overwrite) | Done |
 
 ## Out of scope (v1)
 
 - Replacing PicGo; editing Markdown links; multi-cloud; automatic vault delete watch.
 - Cascade delete / per-note “unique image” cleanup (delete notes in Obsidian; clean leftovers via Orphans).
+- Changing object key / extension (would require Markdown URL rewrites).
 
 ## Acceptance checks
 
@@ -109,3 +126,5 @@ CleanupService  — ListOrphans, ExportOrphans
 - [x] Thumbnails default off; cached locally when enabled.
 - [x] All COS + vault settings editable in Settings UI and persisted locally.
 - [x] Fresh install works without a `.env` file after Settings save.
+- [x] Filter images by min size (incl. ≥500 KB preset).
+- [x] Compress preview before overwrite; same-key replace; no Markdown edits.

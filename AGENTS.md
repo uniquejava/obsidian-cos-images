@@ -17,7 +17,8 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 | COS list + delete | Done |
 | Vault Markdown scan | Done |
 | Orphans + CSV/JSON export | Done |
-| Filters (size / date / page size) | Done |
+| Filters (size / date / page size) | Done (Min KB + **≥500 KB** preset) |
+| Recompress / same-key replace | Done (JPEG quality; PNG via **pngquant**/oxipng TinyPNG-style) |
 | Thumbnails | Done; **default OFF**; local disk cache |
 | Config | **Settings UI** (persisted) + optional `.env` fallback for empty fields |
 
@@ -37,7 +38,7 @@ main.go              # window + services; godotenv.Load()
 models.go            # AppConfig, COSSettings, …
 config.go            # persisted Settings + optional env fallback
 configservice.go     # GetConfig, SaveCOSSettings, SaveVaultPaths, …
-cosservice.go / thumbcache.go
+cosservice.go / thumbcache.go / compress.go
 cosurl.go / vaultservice.go
 cleanupservice.go / export.go
 frontend/src/App.tsx
@@ -81,6 +82,8 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 - List / delete / vault scan / export ≈ no object download traffic.
 - Thumbnails ON → first fetch per key may egress; then local cache. Default OFF.
+- Recompress preview / replace downloads the full object once per action (then uploads compressed bytes on confirm).
+- **PNG recompress** requires local `pngquant` (`brew install pngquant`; optional `oxipng`). Not bundled yet.
 - Do not load thumbs via raw public `<img src=cos-url>` in the UI.
 
 ## Hard rules
@@ -89,11 +92,11 @@ export ALL_PROXY=http://127.0.0.1:7897
 2. Never commit secrets or real `.env`. Never reintroduce account-specific COS host/bucket/paths as source defaults.
 3. Orphan delete must **not** remove images still referenced in any configured vault.
 4. Only treat the configured COS host as managed images; ignore other CDN URLs.
-5. Prefer dry-run / preview before any COS delete.
+5. Prefer dry-run / preview before any COS delete or same-key compress replace.
 6. Prefer local/backup vault paths for destructive experiments.
 
 ## Next session starting point
 
-1. Live-test Settings save on a clean config (no `.env`) and with `.env` fallback.
-2. Optional UX: virtualized table, note file picker; system native dialogs for destructive confirms.
+1. Live-test recompress on real ≥500 KB objects (JPEG quality / max-edge; confirm Obsidian still renders after overwrite).
+2. Optional: batch recompress for filtered rows; CDN purge guidance.
 3. Keep docs free of personal bucket/path values when editing.

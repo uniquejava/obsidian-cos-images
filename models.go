@@ -51,3 +51,28 @@ type COSSettings struct {
 	COSPrefix  string `json:"cosPrefix"`
 	COSBaseURL string `json:"cosBaseURL"`
 }
+
+// CompressOptions controls local recompression before a same-key COS overwrite.
+type CompressOptions struct {
+	// Quality is 1–100 (default 80). JPEG: encoder quality. PNG: pngquant max quality (TinyPNG-style).
+	Quality int `json:"quality"`
+	// MaxEdge is the max long-edge in pixels; 0 means no resize.
+	MaxEdge int `json:"maxEdge"`
+}
+
+// CompressPreview is a dry-run recompress result for UI comparison (no upload).
+type CompressPreview struct {
+	Key               string `json:"key"`
+	URL               string `json:"url"`
+	OriginalSize      int64  `json:"originalSize"`
+	CompressedSize    int64  `json:"compressedSize"`
+	CompressedDataURL string `json:"compressedDataURL"`
+	Width             int    `json:"width"`
+	Height            int    `json:"height"`
+	Format            string `json:"format"` // jpeg | png
+	Quality           int    `json:"quality"`
+	MaxEdge           int    `json:"maxEdge"`
+	// Smaller is false when compressed size is not strictly less than original.
+	Smaller bool   `json:"smaller"`
+	Message string `json:"message"`
+}

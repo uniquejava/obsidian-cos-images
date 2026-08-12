@@ -6,6 +6,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.75
 	github.com/wailsapp/wails/v3 v3.0.0-beta.6
+	golang.org/x/image v0.45.0
 )
 
 require (
@@ -20,5 +21,5 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/mapstructure v1.4.3 // indirect
 	github.com/mozillazg/go-httpheader v0.2.1 // indirect
-	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )

@@ -43,6 +43,17 @@ func (s *COSService) ClearThumbnailCache() error {
 	return os.MkdirAll(dir, 0o755)
 }
 
+func invalidateThumbnail(key string) error {
+	path, err := thumbnailCachePath(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func thumbnailCacheDir() (string, error) {
 	if thumbnailCacheDirOverride != "" {
 		return thumbnailCacheDirOverride, nil

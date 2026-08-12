@@ -15,6 +15,8 @@ export {
 export type {
     AppConfig,
     COSSettings,
+    CompressOptions,
+    CompressPreview,
     ImageObject,
     ImageRef,
     OrphanImage

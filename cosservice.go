@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -150,6 +151,141 @@ func (s *COSService) DeleteImages(keys []string) error {
 		}
 	}
 	return nil
+}
+
+// PreviewCompress downloads the object, compresses in memory, and returns a
+// side-by-side preview payload. It does not upload.
+func (s *COSService) PreviewCompress(key string, opts CompressOptions) (CompressPreview, error) {
+	key = strings.TrimSpace(strings.TrimPrefix(key, "/"))
+	if key == "" {
+		return CompressPreview{}, fmt.Errorf("empty key")
+	}
+	opts = normalizeCompressOptions(opts)
+	format, contentType, err := imageFormatFromKey(key)
+	if err != nil {
+		return CompressPreview{}, err
+	}
+
+	cfg := loadRuntimeConfig()
+	if err := requireCOSEnv(cfg); err != nil {
+		return CompressPreview{}, err
+	}
+	client, err := newCOSClient(cfg)
+	if err != nil {
+		return CompressPreview{}, err
+	}
+
+	ctx := context.Background()
+	src, err := downloadCOSObject(ctx, client, key)
+	if err != nil {
+		return CompressPreview{}, err
+	}
+
+	out, w, h, err := compressImageBytes(src, format, opts)
+	if err != nil {
+		return CompressPreview{}, err
+	}
+
+	preview := CompressPreview{
+		Key:               key,
+		URL:               joinCOSURL(cfg.COSBaseURL, key),
+		OriginalSize:      int64(len(src)),
+		CompressedSize:    int64(len(out)),
+		CompressedDataURL: dataURL(contentType, out),
+		Width:             w,
+		Height:            h,
+		Format:            format,
+		Quality:           opts.Quality,
+		MaxEdge:           opts.MaxEdge,
+		Smaller:           int64(len(out)) < int64(len(src)),
+	}
+	if !preview.Smaller {
+		preview.Message = "Compressed size is not smaller than the original; replace is blocked unless you change settings."
+	}
+	return preview, nil
+}
+
+// ReplaceWithCompressed recompresses the object and overwrites the same COS key.
+// Markdown URLs stay unchanged. Refuses to upload when compressed is not smaller.
+func (s *COSService) ReplaceWithCompressed(key string, opts CompressOptions) (ImageObject, error) {
+	key = strings.TrimSpace(strings.TrimPrefix(key, "/"))
+	if key == "" {
+		return ImageObject{}, fmt.Errorf("empty key")
+	}
+	opts = normalizeCompressOptions(opts)
+	format, contentType, err := imageFormatFromKey(key)
+	if err != nil {
+		return ImageObject{}, err
+	}
+
+	cfg := loadRuntimeConfig()
+	if err := requireCOSEnv(cfg); err != nil {
+		return ImageObject{}, err
+	}
+	client, err := newCOSClient(cfg)
+	if err != nil {
+		return ImageObject{}, err
+	}
+
+	ctx := context.Background()
+	src, err := downloadCOSObject(ctx, client, key)
+	if err != nil {
+		return ImageObject{}, err
+	}
+
+	out, _, _, err := compressImageBytes(src, format, opts)
+	if err != nil {
+		return ImageObject{}, err
+	}
+	if int64(len(out)) >= int64(len(src)) {
+		return ImageObject{}, fmt.Errorf(
+			"compressed size (%d) is not smaller than original (%d); aborting replace",
+			len(out), len(src),
+		)
+	}
+
+	_, err = client.Object.Put(ctx, key, bytes.NewReader(out), &cos.ObjectPutOptions{
+		ObjectPutHeaderOptions: &cos.ObjectPutHeaderOptions{
+			ContentType: contentType,
+		},
+	})
+	if err != nil {
+		return ImageObject{}, fmt.Errorf("upload compressed object: %w", err)
+	}
+
+	_ = invalidateThumbnail(key)
+
+	now := time.Now()
+	uploadTime := parseUploadTimeFromKey(key)
+	if uploadTime.IsZero() {
+		uploadTime = now
+	}
+	return ImageObject{
+		Key:          key,
+		URL:          joinCOSURL(cfg.COSBaseURL, key),
+		Size:         int64(len(out)),
+		LastModified: now.UTC(),
+		UploadTime:   uploadTime,
+	}, nil
+}
+
+func downloadCOSObject(ctx context.Context, client *cos.Client, key string) ([]byte, error) {
+	resp, err := client.Object.Get(ctx, key, nil)
+	if err != nil {
+		return nil, fmt.Errorf("download COS object: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("download COS object %s: HTTP %d", key, resp.StatusCode)
+	}
+	data, err := readAllLimited(resp.Body, maxCompressSourceBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read COS object %s: %w", key, err)
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty COS object %s", key)
+	}
+	return data, nil
 }
 
 // TestConnection probes the COS bucket with the Settings form values (does not save).

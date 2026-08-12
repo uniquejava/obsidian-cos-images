@@ -43,6 +43,47 @@ export interface COSSettings {
 }
 
 /**
+ * CompressOptions controls local recompression before a same-key COS overwrite.
+ */
+export interface CompressOptions {
+    /**
+     * Quality is 1–100 (default 80). JPEG: encoder quality. PNG: pngquant max quality (TinyPNG-style).
+     */
+    "quality": number;
+
+    /**
+     * MaxEdge is the max long-edge in pixels; 0 means no resize.
+     */
+    "maxEdge": number;
+}
+
+/**
+ * CompressPreview is a dry-run recompress result for UI comparison (no upload).
+ */
+export interface CompressPreview {
+    "key": string;
+    "url": string;
+    "originalSize": number;
+    "compressedSize": number;
+    "compressedDataURL": string;
+    "width": number;
+    "height": number;
+
+    /**
+     * jpeg | png
+     */
+    "format": string;
+    "quality": number;
+    "maxEdge": number;
+
+    /**
+     * Smaller is false when compressed size is not strictly less than original.
+     */
+    "smaller": boolean;
+    "message": string;
+}
+
+/**
  * ImageObject is one object in Tencent COS (PicGo uploads).
  */
 export interface ImageObject {

@@ -44,6 +44,22 @@ export function ListImages(): $CancellablePromise<$models.ImageObject[] | null> 
 }
 
 /**
+ * PreviewCompress downloads the object, compresses in memory, and returns a
+ * side-by-side preview payload. It does not upload.
+ */
+export function PreviewCompress(key: string, opts: $models.CompressOptions): $CancellablePromise<$models.CompressPreview> {
+    return $Call.ByID(3936105570, key, opts);
+}
+
+/**
+ * ReplaceWithCompressed recompresses the object and overwrites the same COS key.
+ * Markdown URLs stay unchanged. Refuses to upload when compressed is not smaller.
+ */
+export function ReplaceWithCompressed(key: string, opts: $models.CompressOptions): $CancellablePromise<$models.ImageObject> {
+    return $Call.ByID(2175243375, key, opts);
+}
+
+/**
  * TestConnection probes the COS bucket with the Settings form values (does not save).
  * Empty SecretKey reuses the stored/env key. Returns a short success summary.
  */
