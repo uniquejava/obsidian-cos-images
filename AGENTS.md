@@ -17,8 +17,7 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 | COS list + delete | Done |
 | Vault Markdown scan | Done |
 | Orphans + CSV/JSON export | Done |
-| Cascade unique-only delete | Done |
-| Filters (size / date / unused) | Done |
+| Filters (size / date / page size) | Done |
 | Thumbnails | Done; **default OFF**; local disk cache |
 | Config | From **`.env` only** (no account/host/path defaults in source) |
 
@@ -84,7 +83,7 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 1. Implement against `docs/REQUIREMENTS.md`; do not invent a second product scope.
 2. Never commit secrets or real `.env`. Never reintroduce account-specific COS host/bucket/paths as source defaults.
-3. Default cascade / orphan delete must **not** remove images still referenced in any configured vault.
+3. Orphan delete must **not** remove images still referenced in any configured vault.
 4. Only treat the configured COS host as managed images; ignore other CDN URLs.
 5. Prefer dry-run / preview before any COS delete.
 6. Prefer local/backup vault paths for destructive experiments.

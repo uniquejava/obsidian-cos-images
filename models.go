@@ -25,14 +25,6 @@ type OrphanImage struct {
 	ImageObject
 }
 
-// CascadeDeletePreview lists images that would be removed when deleting a note.
-type CascadeDeletePreview struct {
-	NotePath string        `json:"notePath"`
-	Images   []ImageObject `json:"images"`
-	// SharedWithOtherNotes: images also used elsewhere — default policy is keep.
-	SharedWithOtherNotes []ImageRef `json:"sharedWithOtherNotes"`
-}
-
 // AppConfig is local settings (loaded from env / config file; never commit secrets).
 type AppConfig struct {
 	COSBucket      string   `json:"cosBucket"`

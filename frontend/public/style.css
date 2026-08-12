@@ -209,7 +209,7 @@ button {
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled):not(.primary):not(.danger) {
   background: var(--row-hover);
 }
 
@@ -225,7 +225,19 @@ button.primary {
 }
 
 button.primary:hover:not(:disabled) {
-  filter: brightness(0.95);
+  background: var(--accent);
+  filter: brightness(0.92);
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--danger);
+  filter: brightness(0.92);
 }
 
 input[type="text"],

@@ -20,19 +20,6 @@ export interface AppConfig {
 }
 
 /**
- * CascadeDeletePreview lists images that would be removed when deleting a note.
- */
-export interface CascadeDeletePreview {
-    "notePath": string;
-    "images": ImageObject[] | null;
-
-    /**
-     * SharedWithOtherNotes: images also used elsewhere — default policy is keep.
-     */
-    "sharedWithOtherNotes": ImageRef[] | null;
-}
-
-/**
  * ImageObject is one object in Tencent COS (PicGo uploads).
  */
 export interface ImageObject {

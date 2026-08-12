@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestPreviewCascadeUniqueVsShared(t *testing.T) {
+func TestScanReferencesUniqueVsShared(t *testing.T) {
 	dir := t.TempDir()
 	noteA := filepath.Join(dir, "a.md")
 	noteB := filepath.Join(dir, "b.md")

@@ -4,7 +4,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   AppConfig,
-  CascadeDeletePreview,
   CleanupService,
   ConfigService,
   COSService,
@@ -14,15 +13,26 @@ import {
   VaultService,
 } from '../bindings/github.com/uniquejava/obsidian-cos-images';
 
-type Tab = 'images' | 'orphans' | 'cascade' | 'settings';
+type Tab = 'images' | 'orphans' | 'settings';
 type SortBy = 'uploadTime' | 'size';
 
-const PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS: {value: number; label: string}[] = [
+  {value: 20, label: '20'},
+  {value: 50, label: '50'},
+  {value: 100, label: '100'},
+  {value: 200, label: '200'},
+  {value: 0, label: 'All'},
+];
+
+function applyPageSize<T>(rows: T[], pageSize: number): T[] {
+  if (pageSize <= 0) return rows;
+  return rows.slice(0, pageSize);
+}
 
 const TABS: {id: Tab; label: string}[] = [
   {id: 'images', label: 'Images'},
   {id: 'orphans', label: 'Orphans'},
-  {id: 'cascade', label: 'Cascade'},
   {id: 'settings', label: 'Settings'},
 ];
 
@@ -156,15 +166,11 @@ function App() {
   const [minSizeMB, setMinSizeMB] = useState(0);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [unusedOnly, setUnusedOnly] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [previewImage, setPreviewImage] = useState<ImageObject | null>(null);
   const [noteReader, setNoteReader] = useState<{paths: string[]; active: string} | null>(null);
-  const [imagesLimit, setImagesLimit] = useState(PAGE_SIZE);
-  const [orphansLimit, setOrphansLimit] = useState(PAGE_SIZE);
-
-  const [notePath, setNotePath] = useState('');
-  const [cascadePreview, setCascadePreview] = useState<CascadeDeletePreview | null>(null);
+  const [imagesPageSize, setImagesPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [orphansPageSize, setOrphansPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const refByKey = useMemo(() => {
     const m = new Map<string, ImageRef>();
@@ -228,7 +234,6 @@ function App() {
       setImages(imgs ?? []);
       setRefs(scanned ?? []);
       setSelectedKeys(new Set());
-      setImagesLimit(PAGE_SIZE);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -243,7 +248,6 @@ function App() {
       const list = await CleanupService.ListOrphans();
       setOrphans(list ?? []);
       setSelectedKeys(new Set());
-      setOrphansLimit(PAGE_SIZE);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -262,9 +266,6 @@ function App() {
     const fromTs = dayStart(dateFrom);
     const toTs = dayEnd(dateTo);
     let list = images.filter((img) => (img.size || 0) >= minBytes);
-    if (unusedOnly) {
-      list = list.filter((img) => !refByKey.has(img.key));
-    }
     if (fromTs != null || toTs != null) {
       list = list.filter((img) => {
         const t = new Date(img.uploadTime).getTime();
@@ -278,16 +279,24 @@ function App() {
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       return new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime();
     });
-  }, [images, minSizeMB, unusedOnly, refByKey, sortBy, dateFrom, dateTo]);
+  }, [images, minSizeMB, sortBy, dateFrom, dateTo]);
 
-  useEffect(() => {
-    setImagesLimit(PAGE_SIZE);
-  }, [sortBy, minSizeMB, dateFrom, dateTo, unusedOnly]);
-
-  const visibleImages = filteredImages.slice(0, imagesLimit);
+  const visibleImages = applyPageSize(filteredImages, imagesPageSize);
   const totalBytes = filteredImages.reduce((s, img) => s + (img.size || 0), 0);
   const orphanBytes = orphans.reduce((s, img) => s + (img.size || 0), 0);
-  const visibleOrphans = orphans.slice(0, orphansLimit);
+  const visibleOrphans = applyPageSize(orphans, orphansPageSize);
+
+  const previewList = tab === 'orphans' ? orphans : filteredImages;
+  const previewIndex = previewImage
+    ? previewList.findIndex((img) => img.key === previewImage.key)
+    : -1;
+
+  const stepPreview = (delta: number) => {
+    if (previewIndex < 0) return;
+    const next = previewIndex + delta;
+    if (next < 0 || next >= previewList.length) return;
+    setPreviewImage(previewList[next]);
+  };
 
   const toggleKey = (key: string) => {
     setSelectedKeys((prev) => {
@@ -309,8 +318,40 @@ function App() {
     try {
       await COSService.DeleteImages(keys);
       setSelectedKeys(new Set());
-      if (tab === 'orphans') await loadOrphans();
-      else await loadImagesAndRefs();
+      if (previewImage && keys.includes(previewImage.key)) {
+        setPreviewImage(null);
+      }
+      await loadOrphans();
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deletePreviewOrphan = async () => {
+    if (!previewImage || tab !== 'orphans') return;
+    const key = previewImage.key;
+    const idx = orphans.findIndex((o) => o.key === key);
+    setLoading(true);
+    setError('');
+    try {
+      await COSService.DeleteImages([key]);
+      const nextList = orphans.filter((o) => o.key !== key);
+      setOrphans(nextList);
+      setSelectedKeys((prev) => {
+        if (!prev.has(key)) return prev;
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      if (nextList.length === 0 || idx < 0) {
+        setPreviewImage(null);
+      } else if (idx >= nextList.length) {
+        setPreviewImage(nextList[nextList.length - 1]);
+      } else {
+        setPreviewImage(nextList[idx]);
+      }
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -378,55 +419,31 @@ function App() {
     }
   };
 
-  const runCascadePreview = async () => {
-    setLoading(true);
-    setError('');
-    setCascadePreview(null);
-    try {
-      const preview = await CleanupService.PreviewCascadeDelete(notePath.trim());
-      setCascadePreview(preview);
-    } catch (e: unknown) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const runCascadeDelete = async () => {
-    if (!cascadePreview) return;
-    const n = cascadePreview.images?.length ?? 0;
-    if (n === 0) {
-      window.alert('No uniquely-referenced images to delete.');
-      return;
-    }
-    const bytes = (cascadePreview.images ?? []).reduce((s, img) => s + (img.size || 0), 0);
-    const ok = window.confirm(
-      `Delete ${n} uniquely-referenced image(s) (${formatBytes(bytes)}) for this note?\nShared images will be kept.`,
-    );
-    if (!ok) return;
-    setLoading(true);
-    setError('');
-    try {
-      await CleanupService.CascadeDeleteNoteImages(cascadePreview.notePath, true);
-      await runCascadePreview();
-      await loadImagesAndRefs();
-    } catch (e: unknown) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!previewImage && !noteReader) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (previewImage) setPreviewImage(null);
-      else if (noteReader) setNoteReader(null);
+      if (noteReader) {
+        if (e.key === 'Escape') setNoteReader(null);
+        return;
+      }
+      if (!previewImage) return;
+      if (e.key === 'Escape') {
+        setPreviewImage(null);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepPreview(-1);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepPreview(1);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [previewImage, noteReader]);
+  }, [previewImage, noteReader, previewIndex, previewList]);
 
   return (
     <div className="app no-drag">
@@ -503,28 +520,18 @@ function App() {
                 <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
               </label>
               <label>
-                <input
-                  type="checkbox"
-                  checked={unusedOnly}
-                  onChange={(e) => setUnusedOnly(e.target.checked)}
-                />
-                Unused only
+                Page size
+                <select
+                  value={imagesPageSize}
+                  onChange={(e) => setImagesPageSize(Number(e.target.value))}
+                >
+                  {PAGE_SIZE_OPTIONS.map((o) => (
+                    <option key={o.label} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <label title="Off by default to avoid COS egress. Cached locally after first load.">
-                <input
-                  type="checkbox"
-                  checked={showThumbnails}
-                  onChange={(e) => toggleThumbnails(e.target.checked)}
-                />
-                Thumbnails
-              </label>
-              <button
-                type="button"
-                disabled={selectedKeys.size === 0 || loading}
-                onClick={() => deleteSelected([...selectedKeys], 'selected')}
-              >
-                Delete ({selectedKeys.size})
-              </button>
               <span className="toolbar-stat">
                 Showing {visibleImages.length} / {filteredImages.length}
                 {' · '}
@@ -538,31 +545,13 @@ function App() {
                 <ImageTable
                   rows={visibleImages}
                   refByKey={refByKey}
+                  selectable={false}
                   selectedKeys={selectedKeys}
-                  showThumbnails={showThumbnails}
+                  showThumbnails={false}
                   onToggle={toggleKey}
                   onOpenNote={openNoteReader}
                   onPreview={setPreviewImage}
                 />
-                {imagesLimit < filteredImages.length && (
-                  <div className="load-more">
-                    <button
-                      type="button"
-                      onClick={() => setImagesLimit((n) => n + PAGE_SIZE)}
-                    >
-                      Show next {PAGE_SIZE}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setImagesLimit(filteredImages.length)}
-                    >
-                      Show all {filteredImages.length}
-                    </button>
-                    <span>
-                      {filteredImages.length - imagesLimit} more hidden (keeps the table light)
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
           </>
@@ -581,12 +570,17 @@ function App() {
                 Export JSON
               </button>
               <label>
-                <input
-                  type="checkbox"
-                  checked={showThumbnails}
-                  onChange={(e) => toggleThumbnails(e.target.checked)}
-                />
-                Thumbnails
+                Page size
+                <select
+                  value={orphansPageSize}
+                  onChange={(e) => setOrphansPageSize(Number(e.target.value))}
+                >
+                  {PAGE_SIZE_OPTIONS.map((o) => (
+                    <option key={o.label} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <button
                 type="button"
@@ -613,84 +607,16 @@ function App() {
                 <ImageTable
                   rows={visibleOrphans}
                   refByKey={refByKey}
+                  selectable
                   selectedKeys={selectedKeys}
-                  showThumbnails={showThumbnails}
+                  showThumbnails={false}
                   onToggle={toggleKey}
                   onOpenNote={openNoteReader}
                   onPreview={setPreviewImage}
                 />
-                {orphansLimit < orphans.length && (
-                  <div className="load-more">
-                    <button
-                      type="button"
-                      onClick={() => setOrphansLimit((n) => n + PAGE_SIZE)}
-                    >
-                      Show next {PAGE_SIZE}
-                    </button>
-                    <button type="button" onClick={() => setOrphansLimit(orphans.length)}>
-                      Show all {orphans.length}
-                    </button>
-                    <span>{orphans.length - orphansLimit} more hidden</span>
-                  </div>
-                )}
               </div>
             </div>
           </>
-        )}
-
-        {tab === 'cascade' && (
-          <div className="panel section">
-            <p className="muted">
-              Preview unique-only cascade delete for a Markdown note path. Shared images stay.
-            </p>
-            <div className="stack">
-              <input
-                type="text"
-                value={notePath}
-                onChange={(e) => setNotePath(e.target.value)}
-                placeholder="/path/to/note.md"
-                style={{flex: 1, minWidth: 240}}
-              />
-              <button type="button" onClick={runCascadePreview} disabled={loading || !notePath.trim()}>
-                Preview
-              </button>
-              <button
-                type="button"
-                className="primary"
-                onClick={runCascadeDelete}
-                disabled={loading || !cascadePreview || (cascadePreview.images?.length ?? 0) === 0}
-              >
-                Delete unique images
-              </button>
-            </div>
-            {cascadePreview && (
-              <div>
-                <p>
-                  Note: <code>{cascadePreview.notePath}</code>
-                </p>
-                <h3>
-                  Would delete ({cascadePreview.images?.length ?? 0}) ·{' '}
-                  {formatBytes((cascadePreview.images ?? []).reduce((s, i) => s + (i.size || 0), 0))}
-                </h3>
-                <ul className="note-list">
-                  {(cascadePreview.images ?? []).map((img) => (
-                    <li key={img.key} style={{display: 'flex', gap: 8, alignItems: 'center'}}>
-                      {showThumbnails && <CachedThumb keyName={img.key} size={32} />}
-                      <code>{img.key}</code> · {formatBytes(img.size)}
-                    </li>
-                  ))}
-                </ul>
-                <h3>Shared — kept ({cascadePreview.sharedWithOtherNotes?.length ?? 0})</h3>
-                <ul className="note-list">
-                  {(cascadePreview.sharedWithOtherNotes ?? []).map((ref) => (
-                    <li key={ref.key}>
-                      <code>{ref.key}</code> · {ref.notes?.length ?? 0} notes
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
         )}
 
         {tab === 'settings' && (
@@ -738,7 +664,16 @@ function App() {
       </div>
 
       {previewImage && (
-        <ImageLightbox image={previewImage} onClose={() => setPreviewImage(null)} />
+        <ImageLightbox
+          image={previewImage}
+          index={previewIndex}
+          total={previewList.length}
+          onClose={() => setPreviewImage(null)}
+          onPrev={() => stepPreview(-1)}
+          onNext={() => stepPreview(1)}
+          onDelete={tab === 'orphans' ? deletePreviewOrphan : undefined}
+          deleting={loading}
+        />
       )}
       {noteReader && (
         <NoteReader
@@ -869,11 +804,34 @@ function NoteReader({
   );
 }
 
-function ImageLightbox({image, onClose}: {image: ImageObject; onClose: () => void}) {
+function ImageLightbox({
+  image,
+  index,
+  total,
+  onClose,
+  onPrev,
+  onNext,
+  onDelete,
+  deleting,
+}: {
+  image: ImageObject;
+  index: number;
+  total: number;
+  onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+  onDelete?: () => void | Promise<void>;
+  deleting?: boolean;
+}) {
   const [failed, setFailed] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const hasPrev = index > 0;
+  const hasNext = index >= 0 && index < total - 1;
+  const positionLabel = index >= 0 && total > 0 ? `${index + 1} / ${total}` : '';
 
   useEffect(() => {
     setFailed(false);
+    setConfirmDelete(false);
   }, [image.key, image.url]);
 
   return (
@@ -890,20 +848,90 @@ function ImageLightbox({image, onClose}: {image: ImageObject; onClose: () => voi
             <code>{image.key}</code>
             <div className="muted" style={{marginTop: 2}}>
               {formatBytes(image.size)} · {formatTime(image.uploadTime)}
+              {positionLabel ? ` · ${positionLabel}` : ''}
             </div>
           </div>
           <div className="lightbox-actions">
             <button
               type="button"
-              onClick={() => {
-                void Browser.OpenURL(image.url).catch((e: unknown) => {
-                  window.alert(`Could not open URL:\n${String(e)}`);
+              disabled={deleting || !hasPrev}
+              title="Previous (←)"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPrev();
+              }}
+            >
+              ← Prev
+            </button>
+            <button
+              type="button"
+              disabled={deleting || !hasNext}
+              title="Next (→)"
+              onClick={(e) => {
+                e.stopPropagation();
+                onNext();
+              }}
+            >
+              Next →
+            </button>
+            {onDelete && !confirmDelete && (
+              <button
+                type="button"
+                className="danger"
+                disabled={deleting}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmDelete(true);
+                }}
+              >
+                Delete
+              </button>
+            )}
+            {onDelete && confirmDelete && (
+              <>
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={deleting}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onDelete();
+                  }}
+                >
+                  {deleting ? 'Deleting…' : 'Confirm delete'}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDelete(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={(e) => {
+                e.stopPropagation();
+                void Browser.OpenURL(image.url).catch((err: unknown) => {
+                  window.alert(`Could not open URL:\n${String(err)}`);
                 });
               }}
             >
               Open in browser
             </button>
-            <button type="button" onClick={onClose}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              disabled={deleting}
+            >
               Close
             </button>
           </div>
@@ -928,6 +956,7 @@ function ImageLightbox({image, onClose}: {image: ImageObject; onClose: () => voi
 function ImageTable({
   rows,
   refByKey,
+  selectable,
   selectedKeys,
   showThumbnails,
   onToggle,
@@ -936,19 +965,20 @@ function ImageTable({
 }: {
   rows: ImageObject[];
   refByKey: Map<string, ImageRef>;
+  selectable: boolean;
   selectedKeys: Set<string>;
   showThumbnails: boolean;
   onToggle: (key: string) => void;
   onOpenNote: (notes: string[] | null | undefined) => void;
   onPreview: (img: ImageObject) => void;
 }) {
-  const colSpan = showThumbnails ? 8 : 7;
+  const colSpan = (selectable ? 1 : 0) + (showThumbnails ? 1 : 0) + 6;
   return (
     <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
-            <th className="col-check" aria-label="Select" />
+            {selectable && <th className="col-check" aria-label="Select" />}
             {showThumbnails && <th className="col-thumb">Thumb</th>}
             <th className="col-key">Object key</th>
             <th className="col-note">Note</th>
@@ -974,13 +1004,15 @@ function ImageTable({
             const note = primaryNoteLabel(notes);
             return (
               <tr key={img.key}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selectedKeys.has(img.key)}
-                    onChange={() => onToggle(img.key)}
-                  />
-                </td>
+                {selectable && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selectedKeys.has(img.key)}
+                      onChange={() => onToggle(img.key)}
+                    />
+                  </td>
+                )}
                 {showThumbnails && (
                   <td>
                     <button

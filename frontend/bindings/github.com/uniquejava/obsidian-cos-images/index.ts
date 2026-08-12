@@ -14,7 +14,6 @@ export {
 
 export type {
     AppConfig,
-    CascadeDeletePreview,
     ImageObject,
     ImageRef,
     OrphanImage

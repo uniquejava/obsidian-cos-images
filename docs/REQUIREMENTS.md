@@ -31,7 +31,7 @@ Markdown forms to parse (host must match `COS_BASE_URL`):
 - Obsidian size suffix: `![image.png\|800](url)`, `![\|768](url)`
 - Occasional HTML `<img src="...">`
 
-Ignore non-configured hosts for orphan / cascade logic.
+Ignore non-configured hosts for orphan logic.
 
 ## Functional requirements
 
@@ -39,10 +39,10 @@ Ignore non-configured hosts for orphan / cascade logic.
 
 - List COS images under the configured prefix.
 - Sort by **upload time** (prefer timestamp in object key; else `LastModified`).
-- Show size, upload time, key, public URL; optional thumbnails.
-- Filters: size, date range, unused only.
-- Multi-select delete with confirmation.
-- Thumbnails **default off**; local cache when enabled.
+- Show size, upload time, key, public URL; optional preview.
+- Filters: size, date range; page size (20 / 50 / 100 / 200 / all).
+- Browse-only on Images; COS delete lives under Orphans.
+- Thumbnails **default off** (Settings); local cache when enabled.
 
 ### 2. Reference mapping
 
@@ -53,16 +53,10 @@ Ignore non-configured hosts for orphan / cascade logic.
 ### 3. Orphan detection
 
 - `orphans = COS objects − referenced set` (normalized keys; decode `%20` etc.).
-- Report size / reclaimable bytes; export CSV/JSON; delete only after confirm.
+- Typical workflow: delete a note in Obsidian → its uniquely used images become orphans → delete them here.
+- Report size / reclaimable bytes; export CSV/JSON; multi-select / delete-all after confirm.
 
-### 4. Cascade delete with notes
-
-- Note path → preview images to remove.
-- **Default:** delete only uniquely referenced images; keep shared.
-- Preview + bytes before destructive action.
-- Deleting the note file itself is out of scope for v1.
-
-### 5. Image size awareness
+### 4. Image size awareness
 
 - Display COS `Size`; sort by size to find large uploads.
 
@@ -79,24 +73,24 @@ Ignore non-configured hosts for orphan / cascade logic.
 ConfigService   — GetConfig, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
 COSService      — ListImages, DeleteImages, GetThumbnail, ClearThumbnailCache
 VaultService    — ScanReferences, FindNotesUsing, ReadNote  (+ event vault:scan)
-CleanupService  — ListOrphans, ExportOrphans, PreviewCascadeDelete, CascadeDeleteNoteImages
+CleanupService  — ListOrphans, ExportOrphans
 ```
 
 ## Implementation phases
 
 | Phase | Scope | Status |
 |-------|--------|--------|
-| 1–5 | Config/list, vault, orphans, cascade, polish | Done |
+| 1–4 | Config/list, vault, orphans, polish | Done |
 
 ## Out of scope (v1)
 
 - Replacing PicGo; editing Markdown links; multi-cloud; automatic vault delete watch.
+- Cascade delete / per-note “unique image” cleanup (delete notes in Obsidian; clean leftovers via Orphans).
 
 ## Acceptance checks
 
 - [x] List/sort/size from COS using env-configured bucket.
 - [x] Vault scan for configured host only.
 - [x] Orphans exclude images still referenced in any configured vault.
-- [x] Cascade default keeps shared images.
 - [x] No secrets or personal COS/path defaults in git; `.env.example` is placeholders only.
 - [x] Thumbnails default off; cached locally when enabled.
