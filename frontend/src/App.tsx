@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState, type CSSProperties} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Events} from '@wailsio/runtime';
 import {
   AppConfig,
@@ -14,6 +14,13 @@ import {
 
 type Tab = 'images' | 'orphans' | 'cascade' | 'settings';
 type SortBy = 'uploadTime' | 'size';
+
+const TABS: {id: Tab; label: string}[] = [
+  {id: 'images', label: 'Images'},
+  {id: 'orphans', label: 'Orphans'},
+  {id: 'cascade', label: 'Cascade'},
+  {id: 'settings', label: 'Settings'},
+];
 
 /** In-memory data-URL cache for the current session (disk cache lives in Go). */
 const thumbMemory = new Map<string, string>();
@@ -94,33 +101,21 @@ function CachedThumb({keyName, size = 40}: {keyName: string; size?: number}) {
 
   if (failed) {
     return (
-      <div
-        style={{
-          width: size,
-          height: size,
-          background: '#f4f4f5',
-          color: '#a1a1aa',
-          fontSize: 10,
-          display: 'grid',
-          placeItems: 'center',
-        }}
-      >
+      <div className="thumb-fallback" style={{width: size, height: size}}>
         —
       </div>
     );
   }
   if (!src) {
-    return (
-      <div style={{width: size, height: size, background: '#f4f4f5'}} />
-    );
+    return <div className="thumb-fallback" style={{width: size, height: size}} />;
   }
   return (
     <img
+      className="thumb-img"
       src={src}
       alt=""
       width={size}
       height={size}
-      style={{objectFit: 'cover', background: '#f4f4f5', display: 'block'}}
     />
   );
 }
@@ -401,294 +396,324 @@ function App() {
     }
   };
 
-  const tabStyle = (t: Tab): CSSProperties => ({
-    padding: '8px 14px',
-    border: '1px solid #d4d4d8',
-    background: tab === t ? '#18181b' : '#fff',
-    color: tab === t ? '#fff' : '#18181b',
-    cursor: 'pointer',
-    borderRadius: 6,
-  });
+  const showDetail = Boolean(detailKey) && (tab === 'images' || tab === 'orphans');
 
   return (
-    <main style={{fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 1280}}>
-      <h1 style={{marginTop: 0}}>Obsidian COS Images</h1>
-      <p style={{color: '#555', marginBottom: 8}}>
-        Prefix <code>{config?.cosPrefix ?? 'obsidian/'}</code>
-        {config && (
-          <>
-            {' '}
-            · credentials {config.secretIdSet && config.secretKeySet ? 'ready' : 'missing (.env)'}
-            {' '}
-            · {refs.length} referenced keys
-          </>
-        )}
-      </p>
-      {scanStatus && <p style={{color: '#71717a', marginTop: 0, fontSize: 13}}>{scanStatus}</p>}
-
-      <div style={{display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap'}}>
-        {(['images', 'orphans', 'cascade', 'settings'] as Tab[]).map((t) => (
-          <button key={t} type="button" style={tabStyle(t)} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
+    <div className="app no-drag">
+      <aside className="sidebar">
+        <div className="brand">
+          Obsidian COS
+          <small>
+            {config?.cosPrefix ?? 'obsidian/'}
+            {config
+              ? ` · ${config.secretIdSet && config.secretKeySet ? 'creds ok' : 'creds missing'}`
+              : ''}
+          </small>
+        </div>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`nav-btn${tab === t.id ? ' active' : ''}`}
+            onClick={() => {
+              setTab(t.id);
+              if (t.id !== 'images' && t.id !== 'orphans') setDetailKey(null);
+            }}
+          >
+            {t.label}
           </button>
         ))}
-      </div>
+        <div className="sidebar-meta">
+          {refs.length} referenced keys
+          {scanStatus ? (
+            <>
+              <br />
+              {scanStatus}
+            </>
+          ) : null}
+        </div>
+      </aside>
 
-      {error && (
-        <pre style={{color: 'crimson', background: '#fef2f2', padding: 12, borderRadius: 8}}>
-          {error}
-        </pre>
-      )}
+      <div className="main">
+        {error && <pre className="error-box">{error}</pre>}
 
-      {tab === 'images' && (
-        <>
-          <div style={{display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap'}}>
-            <button type="button" onClick={loadImagesAndRefs} disabled={loading}>
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
-            <label>
-              Sort{' '}
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
-                <option value="uploadTime">Upload time</option>
-                <option value="size">Size</option>
-              </select>
-            </label>
-            <label>
-              Min MB{' '}
-              <input
-                type="number"
-                min={0}
-                step={0.1}
-                value={minSizeMB}
-                onChange={(e) => setMinSizeMB(Number(e.target.value) || 0)}
-                style={{width: 64}}
-              />
-            </label>
-            <label>
-              From{' '}
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-            </label>
-            <label>
-              To{' '}
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-            </label>
-            <label style={{display: 'flex', gap: 6, alignItems: 'center'}}>
-              <input
-                type="checkbox"
-                checked={unusedOnly}
-                onChange={(e) => setUnusedOnly(e.target.checked)}
-              />
-              Unused only
-            </label>
-            <label style={{display: 'flex', gap: 6, alignItems: 'center'}} title="Off by default to avoid COS egress. Cached locally after first load.">
-              <input
-                type="checkbox"
-                checked={showThumbnails}
-                onChange={(e) => toggleThumbnails(e.target.checked)}
-              />
-              Thumbnails
-            </label>
-            <button
-              type="button"
-              disabled={selectedKeys.size === 0 || loading}
-              onClick={() => deleteSelected([...selectedKeys], 'selected')}
-            >
-              Delete selected ({selectedKeys.size})
-            </button>
-            <span style={{color: '#666'}}>
-              {filteredImages.length} shown · {formatBytes(totalBytes)}
-              {images.length === 0 && !loading ? ' · click Refresh to load' : ''}
-            </span>
-          </div>
-
-          <ImageTable
-            rows={filteredImages}
-            refByKey={refByKey}
-            selectedKeys={selectedKeys}
-            showThumbnails={showThumbnails}
-            onToggle={toggleKey}
-            onOpen={setDetailKey}
-          />
-        </>
-      )}
-
-      {tab === 'orphans' && (
-        <>
-          <div style={{display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap'}}>
-            <button type="button" onClick={loadOrphans} disabled={loading}>
-              {loading ? 'Loading…' : 'Refresh orphans'}
-            </button>
-            <button type="button" disabled={loading} onClick={() => exportOrphans('csv')}>
-              Export CSV
-            </button>
-            <button type="button" disabled={loading} onClick={() => exportOrphans('json')}>
-              Export JSON
-            </button>
-            <label style={{display: 'flex', gap: 6, alignItems: 'center'}}>
-              <input
-                type="checkbox"
-                checked={showThumbnails}
-                onChange={(e) => toggleThumbnails(e.target.checked)}
-              />
-              Thumbnails
-            </label>
-            <button
-              type="button"
-              disabled={selectedKeys.size === 0 || loading}
-              onClick={() => deleteSelected([...selectedKeys], 'orphans')}
-            >
-              Delete selected ({selectedKeys.size})
-            </button>
-            <button
-              type="button"
-              disabled={orphans.length === 0 || loading}
-              onClick={() => deleteSelected(orphans.map((o) => o.key), 'all orphans')}
-            >
-              Delete all orphans
-            </button>
-            <span style={{color: '#666'}}>
-              {orphans.length} orphans · reclaimable {formatBytes(orphanBytes)}
-            </span>
-          </div>
-          <ImageTable
-            rows={orphans}
-            refByKey={refByKey}
-            selectedKeys={selectedKeys}
-            showThumbnails={showThumbnails}
-            onToggle={toggleKey}
-            onOpen={setDetailKey}
-          />
-        </>
-      )}
-
-      {tab === 'cascade' && (
-        <section>
-          <p style={{color: '#555'}}>
-            Preview unique-only cascade delete for a Markdown note path. Shared images stay.
-          </p>
-          <div style={{display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16}}>
-            <input
-              value={notePath}
-              onChange={(e) => setNotePath(e.target.value)}
-              placeholder="/path/to/note.md"
-              style={{flex: 1, minWidth: 280, padding: 8}}
-            />
-            <button type="button" onClick={runCascadePreview} disabled={loading || !notePath.trim()}>
-              Preview
-            </button>
-            <button
-              type="button"
-              onClick={runCascadeDelete}
-              disabled={loading || !cascadePreview || (cascadePreview.images?.length ?? 0) === 0}
-            >
-              Delete unique images
-            </button>
-          </div>
-          {cascadePreview && (
-            <div>
-              <p>
-                Note: <code>{cascadePreview.notePath}</code>
-              </p>
-              <h3>
-                Would delete ({cascadePreview.images?.length ?? 0}) ·{' '}
-                {formatBytes((cascadePreview.images ?? []).reduce((s, i) => s + (i.size || 0), 0))}
-              </h3>
-              <ul>
-                {(cascadePreview.images ?? []).map((img) => (
-                  <li key={img.key} style={{display: 'flex', gap: 8, alignItems: 'center'}}>
-                    {showThumbnails && <CachedThumb keyName={img.key} size={32} />}
-                    <code>{img.key}</code> · {formatBytes(img.size)}
-                  </li>
-                ))}
-              </ul>
-              <h3>Shared — kept ({cascadePreview.sharedWithOtherNotes?.length ?? 0})</h3>
-              <ul>
-                {(cascadePreview.sharedWithOtherNotes ?? []).map((ref) => (
-                  <li key={ref.key}>
-                    <code>{ref.key}</code> · {ref.notes?.length ?? 0} notes
-                  </li>
-                ))}
-              </ul>
+        {tab === 'images' && (
+          <>
+            <div className="toolbar">
+              <button type="button" className="primary" onClick={loadImagesAndRefs} disabled={loading}>
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+              <label>
+                Sort
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
+                  <option value="uploadTime">Upload time</option>
+                  <option value="size">Size</option>
+                </select>
+              </label>
+              <label>
+                Min MB
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={minSizeMB}
+                  onChange={(e) => setMinSizeMB(Number(e.target.value) || 0)}
+                  style={{width: 64}}
+                />
+              </label>
+              <label>
+                From
+                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </label>
+              <label>
+                To
+                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={unusedOnly}
+                  onChange={(e) => setUnusedOnly(e.target.checked)}
+                />
+                Unused only
+              </label>
+              <label title="Off by default to avoid COS egress. Cached locally after first load.">
+                <input
+                  type="checkbox"
+                  checked={showThumbnails}
+                  onChange={(e) => toggleThumbnails(e.target.checked)}
+                />
+                Thumbnails
+              </label>
+              <button
+                type="button"
+                disabled={selectedKeys.size === 0 || loading}
+                onClick={() => deleteSelected([...selectedKeys], 'selected')}
+              >
+                Delete ({selectedKeys.size})
+              </button>
+              <span className="toolbar-stat">
+                {filteredImages.length} shown · {formatBytes(totalBytes)}
+                {images.length === 0 && !loading ? ' · click Refresh' : ''}
+              </span>
             </div>
-          )}
-        </section>
-      )}
+            <div className={`content${showDetail ? ' with-detail' : ''}`}>
+              <div className="panel-split">
+                <ImageTable
+                  rows={filteredImages}
+                  refByKey={refByKey}
+                  selectedKeys={selectedKeys}
+                  showThumbnails={showThumbnails}
+                  onToggle={toggleKey}
+                  onOpen={setDetailKey}
+                />
+              </div>
+              {showDetail && (
+                <DetailPanel
+                  detailKey={detailKey!}
+                  notes={detailNotes}
+                  onClose={() => setDetailKey(null)}
+                />
+              )}
+            </div>
+          </>
+        )}
 
-      {tab === 'settings' && (
-        <section>
-          <h3 style={{marginTop: 0}}>Thumbnails</h3>
-          <p style={{color: '#555'}}>
-            Default off. When enabled, 64px thumbs are fetched once (COS{' '}
-            <code>imageMogr2</code>) and stored under the OS cache dir; later views use the local
-            cache (plus an in-memory cache for the session).
-          </p>
-          <label style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12}}>
-            <input
-              type="checkbox"
-              checked={showThumbnails}
-              onChange={(e) => toggleThumbnails(e.target.checked)}
-            />
-            Show thumbnails
-          </label>
-          <button type="button" onClick={clearThumbCache} disabled={loading}>
-            Clear local thumbnail cache
-          </button>
+        {tab === 'orphans' && (
+          <>
+            <div className="toolbar">
+              <button type="button" className="primary" onClick={loadOrphans} disabled={loading}>
+                {loading ? 'Loading…' : 'Refresh orphans'}
+              </button>
+              <button type="button" disabled={loading} onClick={() => exportOrphans('csv')}>
+                Export CSV
+              </button>
+              <button type="button" disabled={loading} onClick={() => exportOrphans('json')}>
+                Export JSON
+              </button>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showThumbnails}
+                  onChange={(e) => toggleThumbnails(e.target.checked)}
+                />
+                Thumbnails
+              </label>
+              <button
+                type="button"
+                disabled={selectedKeys.size === 0 || loading}
+                onClick={() => deleteSelected([...selectedKeys], 'orphans')}
+              >
+                Delete ({selectedKeys.size})
+              </button>
+              <button
+                type="button"
+                disabled={orphans.length === 0 || loading}
+                onClick={() => deleteSelected(orphans.map((o) => o.key), 'all orphans')}
+              >
+                Delete all
+              </button>
+              <span className="toolbar-stat">
+                {orphans.length} orphans · {formatBytes(orphanBytes)}
+              </span>
+            </div>
+            <div className={`content${showDetail ? ' with-detail' : ''}`}>
+              <div className="panel-split">
+                <ImageTable
+                  rows={orphans}
+                  refByKey={refByKey}
+                  selectedKeys={selectedKeys}
+                  showThumbnails={showThumbnails}
+                  onToggle={toggleKey}
+                  onOpen={setDetailKey}
+                />
+              </div>
+              {showDetail && (
+                <DetailPanel
+                  detailKey={detailKey!}
+                  notes={detailNotes}
+                  onClose={() => setDetailKey(null)}
+                />
+              )}
+            </div>
+          </>
+        )}
 
-          <h3>Vault paths</h3>
-          <p style={{color: '#555'}}>
-            One vault root per line. Saved to local config (no secrets). Env{' '}
-            <code>VAULT_PATHS</code> is used only when no saved paths exist.
-          </p>
-          {configPath && (
-            <p style={{fontSize: 13, color: '#71717a'}}>
-              Config file: <code>{configPath}</code>
+        {tab === 'cascade' && (
+          <div className="panel section">
+            <p className="muted">
+              Preview unique-only cascade delete for a Markdown note path. Shared images stay.
             </p>
-          )}
-          <textarea
-            value={vaultPathsText}
-            onChange={(e) => setVaultPathsText(e.target.value)}
-            rows={6}
-            style={{width: '100%', fontFamily: 'ui-monospace, monospace', padding: 10}}
-            placeholder="/path/to/Obsidian/Documents"
-          />
-          <div style={{marginTop: 12}}>
-            <button type="button" onClick={saveVaultPaths} disabled={loading}>
-              Save vault paths
-            </button>
+            <div className="stack">
+              <input
+                type="text"
+                value={notePath}
+                onChange={(e) => setNotePath(e.target.value)}
+                placeholder="/path/to/note.md"
+                style={{flex: 1, minWidth: 240}}
+              />
+              <button type="button" onClick={runCascadePreview} disabled={loading || !notePath.trim()}>
+                Preview
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={runCascadeDelete}
+                disabled={loading || !cascadePreview || (cascadePreview.images?.length ?? 0) === 0}
+              >
+                Delete unique images
+              </button>
+            </div>
+            {cascadePreview && (
+              <div>
+                <p>
+                  Note: <code>{cascadePreview.notePath}</code>
+                </p>
+                <h3>
+                  Would delete ({cascadePreview.images?.length ?? 0}) ·{' '}
+                  {formatBytes((cascadePreview.images ?? []).reduce((s, i) => s + (i.size || 0), 0))}
+                </h3>
+                <ul className="note-list">
+                  {(cascadePreview.images ?? []).map((img) => (
+                    <li key={img.key} style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                      {showThumbnails && <CachedThumb keyName={img.key} size={32} />}
+                      <code>{img.key}</code> · {formatBytes(img.size)}
+                    </li>
+                  ))}
+                </ul>
+                <h3>Shared — kept ({cascadePreview.sharedWithOtherNotes?.length ?? 0})</h3>
+                <ul className="note-list">
+                  {(cascadePreview.sharedWithOtherNotes ?? []).map((ref) => (
+                    <li key={ref.key}>
+                      <code>{ref.key}</code> · {ref.notes?.length ?? 0} notes
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-        </section>
-      )}
+        )}
 
-      {detailKey && (
-        <aside
-          style={{
-            marginTop: 20,
-            padding: 16,
-            background: '#fafafa',
-            border: '1px solid #e4e4e7',
-            borderRadius: 8,
-          }}
-        >
-          <div style={{display: 'flex', justifyContent: 'space-between', gap: 12}}>
-            <strong>References for <code>{detailKey}</code></strong>
-            <button type="button" onClick={() => setDetailKey(null)}>
-              Close
+        {tab === 'settings' && (
+          <div className="panel section">
+            <h3>Thumbnails</h3>
+            <p className="muted">
+              Default off. When enabled, 64px thumbs are fetched once (COS <code>imageMogr2</code>)
+              and stored under the OS cache dir.
+            </p>
+            <label style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12}}>
+              <input
+                type="checkbox"
+                checked={showThumbnails}
+                onChange={(e) => toggleThumbnails(e.target.checked)}
+              />
+              Show thumbnails
+            </label>
+            <button type="button" onClick={clearThumbCache} disabled={loading}>
+              Clear local thumbnail cache
             </button>
+
+            <h3>Vault paths</h3>
+            <p className="muted">
+              One vault root per line. Saved to local config (no secrets). Env{' '}
+              <code>VAULT_PATHS</code> is used only when no saved paths exist.
+            </p>
+            {configPath && (
+              <p className="muted">
+                Config file: <code>{configPath}</code>
+              </p>
+            )}
+            <textarea
+              value={vaultPathsText}
+              onChange={(e) => setVaultPathsText(e.target.value)}
+              rows={8}
+              placeholder="/path/to/Obsidian/Documents"
+            />
+            <div style={{marginTop: 12}}>
+              <button type="button" className="primary" onClick={saveVaultPaths} disabled={loading}>
+                Save vault paths
+              </button>
+            </div>
           </div>
-          {detailNotes.length === 0 ? (
-            <p style={{color: '#71717a'}}>No Markdown references found.</p>
-          ) : (
-            <ul>
-              {detailNotes.map((n) => (
-                <li key={n} title={n}>
-                  {shortPath(n)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailPanel({
+  detailKey,
+  notes,
+  onClose,
+}: {
+  detailKey: string;
+  notes: string[];
+  onClose: () => void;
+}) {
+  return (
+    <aside className="detail">
+      <div className="detail-head">
+        <strong>
+          Notes using
+          <br />
+          <code>{detailKey}</code>
+        </strong>
+        <button type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {notes.length === 0 ? (
+        <p className="muted">No Markdown references found.</p>
+      ) : (
+        <ul>
+          {notes.map((n) => (
+            <li key={n} title={n}>
+              {shortPath(n)}
+            </li>
+          ))}
+        </ul>
       )}
-    </main>
+    </aside>
   );
 }
 
@@ -709,32 +734,32 @@ function ImageTable({
 }) {
   const colSpan = showThumbnails ? 7 : 6;
   return (
-    <div style={{overflow: 'auto', border: '1px solid #e4e4e7', borderRadius: 8, maxHeight: '70vh'}}>
-      <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 14}}>
+    <div className="table-wrap">
+      <table className="data-table">
         <thead>
-          <tr style={{background: '#f4f4f5', textAlign: 'left', position: 'sticky', top: 0}}>
-            <th style={{padding: '10px 12px'}}></th>
-            {showThumbnails && <th style={{padding: '10px 12px'}}>Thumb</th>}
-            <th style={{padding: '10px 12px'}}>Key</th>
-            <th style={{padding: '10px 12px'}}>Size</th>
-            <th style={{padding: '10px 12px'}}>Upload time</th>
-            <th style={{padding: '10px 12px'}}>Notes</th>
-            <th style={{padding: '10px 12px'}}>URL</th>
+          <tr>
+            <th style={{width: 36}} aria-label="Select" />
+            {showThumbnails && <th>Thumb</th>}
+            <th>Key</th>
+            <th>Size</th>
+            <th>Upload time</th>
+            <th>Notes</th>
+            <th>URL</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={colSpan} style={{padding: 16, color: '#71717a'}}>
-                No rows yet. Click Refresh to load from COS / vaults (not auto-fetched on open).
+              <td colSpan={colSpan} className="muted" style={{padding: 16}}>
+                No rows yet. Click Refresh to load from COS / vaults.
               </td>
             </tr>
           )}
           {rows.map((img) => {
             const noteCount = refByKey.get(img.key)?.notes?.length ?? 0;
             return (
-              <tr key={img.key} style={{borderTop: '1px solid #e4e4e7'}}>
-                <td style={{padding: '8px 12px'}}>
+              <tr key={img.key}>
+                <td>
                   <input
                     type="checkbox"
                     checked={selectedKeys.has(img.key)}
@@ -742,35 +767,21 @@ function ImageTable({
                   />
                 </td>
                 {showThumbnails && (
-                  <td style={{padding: '6px 12px'}}>
+                  <td>
                     <CachedThumb keyName={img.key} />
                   </td>
                 )}
-                <td style={{padding: '8px 12px', fontFamily: 'ui-monospace, monospace'}}>
-                  <button
-                    type="button"
-                    onClick={() => onOpen(img.key)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      color: '#1d4ed8',
-                      cursor: 'pointer',
-                      font: 'inherit',
-                      textAlign: 'left',
-                    }}
-                  >
+                <td className="mono">
+                  <button type="button" className="linkish" onClick={() => onOpen(img.key)}>
                     {img.key}
                   </button>
                 </td>
-                <td style={{padding: '8px 12px', whiteSpace: 'nowrap'}} title={`${img.size} bytes`}>
+                <td style={{whiteSpace: 'nowrap'}} title={`${img.size} bytes`}>
                   {formatBytes(img.size)}
                 </td>
-                <td style={{padding: '8px 12px', whiteSpace: 'nowrap'}}>
-                  {formatTime(img.uploadTime)}
-                </td>
-                <td style={{padding: '8px 12px'}}>{noteCount}</td>
-                <td style={{padding: '8px 12px'}}>
+                <td style={{whiteSpace: 'nowrap'}}>{formatTime(img.uploadTime)}</td>
+                <td>{noteCount}</td>
+                <td>
                   <a href={img.url} target="_blank" rel="noreferrer">
                     open
                   </a>
