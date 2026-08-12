@@ -44,7 +44,8 @@ cosurl.go / vaultservice.go
 cleanupservice.go / export.go
 frontend/src/App.tsx
 docs/REQUIREMENTS.md
-docs/screenshot.png  # UI screenshot (README)
+docs/screenshot.png / docs/compress.png
+.github/workflows/   # CI on main; Release on tag v*
 .env.example         # placeholders only (dev convenience)
 ```
 
