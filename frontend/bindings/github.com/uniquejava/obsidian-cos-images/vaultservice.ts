@@ -22,6 +22,13 @@ export function FindNotesUsing(urlOrKey: string): $CancellablePromise<string[] |
 }
 
 /**
+ * ReadNote returns the UTF-8 Markdown body for a note path under a configured vault.
+ */
+export function ReadNote(notePath: string): $CancellablePromise<string> {
+    return $Call.ByID(2521865529, notePath);
+}
+
+/**
  * ScanReferences walks configured vault paths and maps image URL → note paths.
  */
 export function ScanReferences(): $CancellablePromise<$models.ImageRef[] | null> {

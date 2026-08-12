@@ -73,6 +73,68 @@ func (s *VaultService) FindNotesUsing(urlOrKey string) ([]string, error) {
 	return notesForKey(refs, key), nil
 }
 
+// ReadNote returns the UTF-8 Markdown body for a note path under a configured vault.
+func (s *VaultService) ReadNote(notePath string) (string, error) {
+	notePath = strings.TrimSpace(notePath)
+	if notePath == "" {
+		return "", fmt.Errorf("empty note path")
+	}
+	cfg := loadRuntimeConfig()
+	if len(cfg.VaultPaths) == 0 {
+		return "", fmt.Errorf("no vault paths configured: set VAULT_PATHS in .env or save paths in Settings")
+	}
+
+	absNote, err := filepath.Abs(notePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve note path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(absNote); err == nil {
+		absNote = resolved
+	}
+
+	under, err := pathUnderAnyVault(absNote, cfg.VaultPaths)
+	if err != nil {
+		return "", err
+	}
+	if !under {
+		return "", fmt.Errorf("note path is outside configured vaults")
+	}
+	if !strings.EqualFold(filepath.Ext(absNote), ".md") {
+		return "", fmt.Errorf("not a Markdown file: %s", absNote)
+	}
+
+	data, err := os.ReadFile(absNote)
+	if err != nil {
+		return "", fmt.Errorf("read note: %w", err)
+	}
+	return string(data), nil
+}
+
+func pathUnderAnyVault(absNote string, vaultPaths []string) (bool, error) {
+	for _, root := range vaultPaths {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			return false, fmt.Errorf("resolve vault path %q: %w", root, err)
+		}
+		if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
+			absRoot = resolved
+		}
+		rel, err := filepath.Rel(absRoot, absNote)
+		if err != nil {
+			continue
+		}
+		if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 type refAccum struct {
 	URL   string
 	Key   string

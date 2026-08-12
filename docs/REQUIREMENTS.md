@@ -78,7 +78,7 @@ Ignore non-configured hosts for orphan / cascade logic.
 ```
 ConfigService   — GetConfig, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
 COSService      — ListImages, DeleteImages, GetThumbnail, ClearThumbnailCache
-VaultService    — ScanReferences, FindNotesUsing  (+ event vault:scan)
+VaultService    — ScanReferences, FindNotesUsing, ReadNote  (+ event vault:scan)
 CleanupService  — ListOrphans, ExportOrphans, PreviewCascadeDelete, CascadeDeleteNoteImages
 ```
 

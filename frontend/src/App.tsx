@@ -1,5 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import {Browser, Events} from '@wailsio/runtime';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   AppConfig,
   CascadeDeletePreview,
@@ -14,6 +16,8 @@ import {
 
 type Tab = 'images' | 'orphans' | 'cascade' | 'settings';
 type SortBy = 'uploadTime' | 'size';
+
+const PAGE_SIZE = 50;
 
 const TABS: {id: Tab; label: string}[] = [
   {id: 'images', label: 'Images'},
@@ -48,6 +52,22 @@ function formatTime(iso: string): string {
 function shortPath(p: string): string {
   const parts = p.split('/');
   return parts.slice(-3).join('/');
+}
+
+/** Obsidian note title from a Markdown path (basename without .md). */
+function noteTitleFromPath(p: string): string {
+  const base = p.split('/').pop() ?? p;
+  return base.replace(/\.md$/i, '');
+}
+
+function primaryNoteLabel(notes: string[] | null | undefined): {label: string; title: string} {
+  if (!notes?.length) return {label: '—', title: ''};
+  const titles = notes.map(noteTitleFromPath);
+  if (titles.length === 1) return {label: titles[0], title: notes[0]};
+  return {
+    label: `${titles[0]} +${titles.length - 1}`,
+    title: notes.map((n) => `${noteTitleFromPath(n)}\n${n}`).join('\n\n'),
+  };
 }
 
 function downloadText(filename: string, content: string, mime: string) {
@@ -138,8 +158,10 @@ function App() {
   const [dateTo, setDateTo] = useState('');
   const [unusedOnly, setUnusedOnly] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [detailKey, setDetailKey] = useState<string | null>(null);
-  const [detailNotes, setDetailNotes] = useState<string[]>([]);
+  const [previewImage, setPreviewImage] = useState<ImageObject | null>(null);
+  const [noteReader, setNoteReader] = useState<{paths: string[]; active: string} | null>(null);
+  const [imagesLimit, setImagesLimit] = useState(PAGE_SIZE);
+  const [orphansLimit, setOrphansLimit] = useState(PAGE_SIZE);
 
   const [notePath, setNotePath] = useState('');
   const [cascadePreview, setCascadePreview] = useState<CascadeDeletePreview | null>(null);
@@ -206,6 +228,7 @@ function App() {
       setImages(imgs ?? []);
       setRefs(scanned ?? []);
       setSelectedKeys(new Set());
+      setImagesLimit(PAGE_SIZE);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -220,6 +243,7 @@ function App() {
       const list = await CleanupService.ListOrphans();
       setOrphans(list ?? []);
       setSelectedKeys(new Set());
+      setOrphansLimit(PAGE_SIZE);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -227,20 +251,11 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    if (!detailKey) {
-      setDetailNotes([]);
-      return;
-    }
-    const cached = refByKey.get(detailKey);
-    if (cached) {
-      setDetailNotes(cached.notes ?? []);
-      return;
-    }
-    VaultService.FindNotesUsing(detailKey)
-      .then((notes) => setDetailNotes(notes ?? []))
-      .catch(() => setDetailNotes([]));
-  }, [detailKey, refByKey]);
+  const openNoteReader = (notes: string[] | null | undefined) => {
+    const paths = (notes ?? []).filter(Boolean);
+    if (paths.length === 0) return;
+    setNoteReader({paths, active: paths[0]});
+  };
 
   const filteredImages = useMemo(() => {
     const minBytes = minSizeMB > 0 ? minSizeMB * 1024 * 1024 : 0;
@@ -265,8 +280,14 @@ function App() {
     });
   }, [images, minSizeMB, unusedOnly, refByKey, sortBy, dateFrom, dateTo]);
 
+  useEffect(() => {
+    setImagesLimit(PAGE_SIZE);
+  }, [sortBy, minSizeMB, dateFrom, dateTo, unusedOnly]);
+
+  const visibleImages = filteredImages.slice(0, imagesLimit);
   const totalBytes = filteredImages.reduce((s, img) => s + (img.size || 0), 0);
   const orphanBytes = orphans.reduce((s, img) => s + (img.size || 0), 0);
+  const visibleOrphans = orphans.slice(0, orphansLimit);
 
   const toggleKey = (key: string) => {
     setSelectedKeys((prev) => {
@@ -396,7 +417,16 @@ function App() {
     }
   };
 
-  const showDetail = Boolean(detailKey) && (tab === 'images' || tab === 'orphans');
+  useEffect(() => {
+    if (!previewImage && !noteReader) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (previewImage) setPreviewImage(null);
+      else if (noteReader) setNoteReader(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewImage, noteReader]);
 
   return (
     <div className="app no-drag">
@@ -417,7 +447,10 @@ function App() {
             className={`nav-btn${tab === t.id ? ' active' : ''}`}
             onClick={() => {
               setTab(t.id);
-              if (t.id !== 'images' && t.id !== 'orphans') setDetailKey(null);
+              if (t.id !== 'images' && t.id !== 'orphans') {
+                setPreviewImage(null);
+                setNoteReader(null);
+              }
             }}
           >
             {t.label}
@@ -493,28 +526,44 @@ function App() {
                 Delete ({selectedKeys.size})
               </button>
               <span className="toolbar-stat">
-                {filteredImages.length} shown · {formatBytes(totalBytes)}
-                {images.length === 0 && !loading ? ' · click Refresh' : ''}
+                Showing {visibleImages.length} / {filteredImages.length}
+                {' · '}
+                {formatBytes(totalBytes)} total filtered
+                {images.length > 0 ? ` · ${images.length} loaded from COS` : ''}
+                {images.length === 0 && !loading ? ' · click Refresh to load' : ''}
               </span>
             </div>
-            <div className={`content${showDetail ? ' with-detail' : ''}`}>
+            <div className="content">
               <div className="panel-split">
                 <ImageTable
-                  rows={filteredImages}
+                  rows={visibleImages}
                   refByKey={refByKey}
                   selectedKeys={selectedKeys}
                   showThumbnails={showThumbnails}
                   onToggle={toggleKey}
-                  onOpen={setDetailKey}
+                  onOpenNote={openNoteReader}
+                  onPreview={setPreviewImage}
                 />
+                {imagesLimit < filteredImages.length && (
+                  <div className="load-more">
+                    <button
+                      type="button"
+                      onClick={() => setImagesLimit((n) => n + PAGE_SIZE)}
+                    >
+                      Show next {PAGE_SIZE}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImagesLimit(filteredImages.length)}
+                    >
+                      Show all {filteredImages.length}
+                    </button>
+                    <span>
+                      {filteredImages.length - imagesLimit} more hidden (keeps the table light)
+                    </span>
+                  </div>
+                )}
               </div>
-              {showDetail && (
-                <DetailPanel
-                  detailKey={detailKey!}
-                  notes={detailNotes}
-                  onClose={() => setDetailKey(null)}
-                />
-              )}
             </div>
           </>
         )}
@@ -554,27 +603,37 @@ function App() {
                 Delete all
               </button>
               <span className="toolbar-stat">
-                {orphans.length} orphans · {formatBytes(orphanBytes)}
+                Showing {visibleOrphans.length} / {orphans.length}
+                {' · '}
+                reclaimable {formatBytes(orphanBytes)}
               </span>
             </div>
-            <div className={`content${showDetail ? ' with-detail' : ''}`}>
+            <div className="content">
               <div className="panel-split">
                 <ImageTable
-                  rows={orphans}
+                  rows={visibleOrphans}
                   refByKey={refByKey}
                   selectedKeys={selectedKeys}
                   showThumbnails={showThumbnails}
                   onToggle={toggleKey}
-                  onOpen={setDetailKey}
+                  onOpenNote={openNoteReader}
+                  onPreview={setPreviewImage}
                 />
+                {orphansLimit < orphans.length && (
+                  <div className="load-more">
+                    <button
+                      type="button"
+                      onClick={() => setOrphansLimit((n) => n + PAGE_SIZE)}
+                    >
+                      Show next {PAGE_SIZE}
+                    </button>
+                    <button type="button" onClick={() => setOrphansLimit(orphans.length)}>
+                      Show all {orphans.length}
+                    </button>
+                    <span>{orphans.length - orphansLimit} more hidden</span>
+                  </div>
+                )}
               </div>
-              {showDetail && (
-                <DetailPanel
-                  detailKey={detailKey!}
-                  notes={detailNotes}
-                  onClose={() => setDetailKey(null)}
-                />
-              )}
             </div>
           </>
         )}
@@ -677,43 +736,192 @@ function App() {
           </div>
         )}
       </div>
+
+      {previewImage && (
+        <ImageLightbox image={previewImage} onClose={() => setPreviewImage(null)} />
+      )}
+      {noteReader && (
+        <NoteReader
+          notePaths={noteReader.paths}
+          activePath={noteReader.active}
+          onSelectPath={(path) => setNoteReader((cur) => (cur ? {...cur, active: path} : cur))}
+          onClose={() => setNoteReader(null)}
+        />
+      )}
     </div>
   );
 }
 
-function DetailPanel({
-  detailKey,
-  notes,
+function NoteReader({
+  notePaths,
+  activePath,
+  onSelectPath,
   onClose,
 }: {
-  detailKey: string;
-  notes: string[];
+  notePaths: string[];
+  activePath: string;
+  onSelectPath: (path: string) => void;
   onClose: () => void;
 }) {
+  const [body, setBody] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    setBody('');
+    VaultService.ReadNote(activePath)
+      .then((text) => {
+        if (!cancelled) setBody(text ?? '');
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePath]);
+
   return (
-    <aside className="detail">
-      <div className="detail-head">
-        <strong>
-          Notes using
-          <br />
-          <code>{detailKey}</code>
-        </strong>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
+    <div
+      className="lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Markdown note reader"
+      onClick={onClose}
+    >
+      <div className="lightbox-card note-reader-card" onClick={(e) => e.stopPropagation()}>
+        <div className="lightbox-bar">
+          <div className="lightbox-meta">
+            <strong>{noteTitleFromPath(activePath)}</strong>
+            <div className="muted" style={{marginTop: 2}} title={activePath}>
+              {shortPath(activePath)}
+            </div>
+          </div>
+          <div className="lightbox-actions">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+        {notePaths.length > 1 && (
+          <div className="note-tabs">
+            {notePaths.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={`note-tab${p === activePath ? ' active' : ''}`}
+                title={p}
+                onClick={() => onSelectPath(p)}
+              >
+                {noteTitleFromPath(p)}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="note-reader-body">
+          {loading && <p className="muted">Loading note…</p>}
+          {!loading && error && <pre className="error-box" style={{margin: 0}}>{error}</pre>}
+          {!loading && !error && (
+            <article className="md-prose">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  img: ({src, alt}) => (
+                    <img
+                      src={src}
+                      alt={alt ?? ''}
+                      loading="lazy"
+                      onClick={() => {
+                        if (src) {
+                          void Browser.OpenURL(src).catch(() => undefined);
+                        }
+                      }}
+                    />
+                  ),
+                  a: ({href, children}) => (
+                    <a
+                      href={href}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (href) {
+                          void Browser.OpenURL(href).catch(() => undefined);
+                        }
+                      }}
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {body}
+              </ReactMarkdown>
+            </article>
+          )}
+        </div>
       </div>
-      {notes.length === 0 ? (
-        <p className="muted">No Markdown references found.</p>
-      ) : (
-        <ul>
-          {notes.map((n) => (
-            <li key={n} title={n}>
-              {shortPath(n)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </aside>
+    </div>
+  );
+}
+
+function ImageLightbox({image, onClose}: {image: ImageObject; onClose: () => void}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [image.key, image.url]);
+
+  return (
+    <div
+      className="lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image preview"
+      onClick={onClose}
+    >
+      <div className="lightbox-card" onClick={(e) => e.stopPropagation()}>
+        <div className="lightbox-bar">
+          <div className="lightbox-meta">
+            <code>{image.key}</code>
+            <div className="muted" style={{marginTop: 2}}>
+              {formatBytes(image.size)} · {formatTime(image.uploadTime)}
+            </div>
+          </div>
+          <div className="lightbox-actions">
+            <button
+              type="button"
+              onClick={() => {
+                void Browser.OpenURL(image.url).catch((e: unknown) => {
+                  window.alert(`Could not open URL:\n${String(e)}`);
+                });
+              }}
+            >
+              Open in browser
+            </button>
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="lightbox-body">
+          {failed ? (
+            <div className="lightbox-error">Failed to load image.</div>
+          ) : (
+            <img
+              key={image.url}
+              src={image.url}
+              alt={image.key}
+              onError={() => setFailed(true)}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -723,28 +931,33 @@ function ImageTable({
   selectedKeys,
   showThumbnails,
   onToggle,
-  onOpen,
+  onOpenNote,
+  onPreview,
 }: {
   rows: ImageObject[];
   refByKey: Map<string, ImageRef>;
   selectedKeys: Set<string>;
   showThumbnails: boolean;
   onToggle: (key: string) => void;
-  onOpen: (key: string) => void;
+  onOpenNote: (notes: string[] | null | undefined) => void;
+  onPreview: (img: ImageObject) => void;
 }) {
-  const colSpan = showThumbnails ? 7 : 6;
+  const colSpan = showThumbnails ? 8 : 7;
   return (
     <div className="table-wrap">
       <table className="data-table">
         <thead>
           <tr>
-            <th style={{width: 36}} aria-label="Select" />
-            {showThumbnails && <th>Thumb</th>}
-            <th>Key</th>
-            <th>Size</th>
-            <th>Upload time</th>
-            <th>Notes</th>
-            <th>URL</th>
+            <th className="col-check" aria-label="Select" />
+            {showThumbnails && <th className="col-thumb">Thumb</th>}
+            <th className="col-key">Object key</th>
+            <th className="col-note">Note</th>
+            <th className="col-size">Size</th>
+            <th className="col-time">Uploaded</th>
+            <th className="col-refs" title="How many Markdown notes reference this image">
+              Refs
+            </th>
+            <th className="col-actions">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -756,7 +969,9 @@ function ImageTable({
             </tr>
           )}
           {rows.map((img) => {
-            const noteCount = refByKey.get(img.key)?.notes?.length ?? 0;
+            const notes = refByKey.get(img.key)?.notes ?? undefined;
+            const noteCount = notes?.length ?? 0;
+            const note = primaryNoteLabel(notes);
             return (
               <tr key={img.key}>
                 <td>
@@ -768,13 +983,33 @@ function ImageTable({
                 </td>
                 {showThumbnails && (
                   <td>
-                    <CachedThumb keyName={img.key} />
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title="Preview image"
+                      onClick={() => onPreview(img)}
+                      style={{padding: 2, lineHeight: 0}}
+                    >
+                      <CachedThumb keyName={img.key} />
+                    </button>
                   </td>
                 )}
-                <td className="mono">
-                  <button type="button" className="linkish" onClick={() => onOpen(img.key)}>
-                    {img.key}
-                  </button>
+                <td className="mono key-cell" title={img.key}>
+                  {img.key}
+                </td>
+                <td>
+                  {noteCount === 0 ? (
+                    <div className="note-title unused">—</div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="note-title-btn"
+                      title={note.title || 'Open note'}
+                      onClick={() => onOpenNote(notes)}
+                    >
+                      {note.label}
+                    </button>
+                  )}
                 </td>
                 <td style={{whiteSpace: 'nowrap'}} title={`${img.size} bytes`}>
                   {formatBytes(img.size)}
@@ -782,18 +1017,28 @@ function ImageTable({
                 <td style={{whiteSpace: 'nowrap'}}>{formatTime(img.uploadTime)}</td>
                 <td>{noteCount}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="linkish"
-                    title={img.url}
-                    onClick={() => {
-                      void Browser.OpenURL(img.url).catch((e: unknown) => {
-                        window.alert(`Could not open URL:\n${String(e)}`);
-                      });
-                    }}
-                  >
-                    open
-                  </button>
+                  <div className="url-actions">
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title="Preview image in this app"
+                      onClick={() => onPreview(img)}
+                    >
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      title={img.url}
+                      onClick={() => {
+                        void Browser.OpenURL(img.url).catch((e: unknown) => {
+                          window.alert(`Could not open URL:\n${String(e)}`);
+                        });
+                      }}
+                    >
+                      Browser
+                    </button>
+                  </div>
                 </td>
               </tr>
             );

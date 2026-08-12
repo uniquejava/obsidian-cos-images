@@ -32,8 +32,8 @@ func main() {
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Obsidian COS Images",
-		Width:  1200,
-		Height: 800,
+		Width:  1680,
+		Height: 900,
 		Mac: application.MacWindow{
 			Backdrop: application.MacBackdropNormal,
 			TitleBar: application.MacTitleBarDefault,
