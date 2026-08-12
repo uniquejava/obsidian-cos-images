@@ -184,6 +184,12 @@ function App() {
     setConfig(cfg);
     setVaultPathsText((cfg.vaultPaths ?? []).join('\n'));
     setShowThumbnails(Boolean(cfg.showThumbnails));
+    const vaultErrs = cfg.vaultPathErrors ?? [];
+    if (vaultErrs.length > 0) {
+      setError(vaultErrs.join('\n'));
+    } else {
+      setError('');
+    }
     try {
       const path = await ConfigService.ConfigFilePath();
       setConfigPath(path ?? '');
@@ -672,9 +678,17 @@ function App() {
 
             <h3>Vault paths</h3>
             <p className="muted">
-              One vault root per line. Saved to local config (no secrets). Env{' '}
-              <code>VAULT_PATHS</code> is used only when no saved paths exist.
+              One Obsidian vault root per line (the folder that contains{' '}
+              <code>.obsidian/</code>). Home, <code>/</code>, and similar broad
+              paths are rejected so a scan cannot walk the whole disk. Saved to
+              local config (no secrets). Env <code>VAULT_PATHS</code> is used only
+              when no saved paths exist.
             </p>
+            {config?.vaultPathErrors && config.vaultPathErrors.length > 0 && (
+              <pre className="error-box" style={{whiteSpace: 'pre-wrap'}}>
+                {config.vaultPathErrors.join('\n')}
+              </pre>
+            )}
             {configPath && (
               <p className="muted">
                 Config file: <code>{configPath}</code>
@@ -684,7 +698,7 @@ function App() {
               value={vaultPathsText}
               onChange={(e) => setVaultPathsText(e.target.value)}
               rows={8}
-              placeholder="/path/to/Obsidian/Documents"
+              placeholder="/path/to/YourObsidianVault"
             />
             <div style={{marginTop: 12}}>
               <button type="button" className="primary" onClick={saveVaultPaths} disabled={loading}>

@@ -49,17 +49,20 @@ func loadRuntimeConfig() runtimeConfig {
 	if len(vaultPaths) == 0 {
 		vaultPaths = parseVaultPaths(os.Getenv("VAULT_PATHS"))
 	}
+	vaultPaths = cleanPaths(vaultPaths)
+	_, vaultPathErrors := validateVaultRoots(vaultPaths)
 
 	return runtimeConfig{
 		AppConfig: AppConfig{
-			COSBucket:      bucket,
-			COSRegion:      region,
-			COSPrefix:      prefix,
-			COSBaseURL:     baseURL,
-			VaultPaths:     vaultPaths,
-			ShowThumbnails: settings.ShowThumbnails,
-			SecretIDSet:    secretID != "",
-			SecretKeySet:   secretKey != "",
+			COSBucket:       bucket,
+			COSRegion:       region,
+			COSPrefix:       prefix,
+			COSBaseURL:      baseURL,
+			VaultPaths:      vaultPaths,
+			VaultPathErrors: vaultPathErrors,
+			ShowThumbnails:  settings.ShowThumbnails,
+			SecretIDSet:     secretID != "",
+			SecretKeySet:    secretKey != "",
 		},
 		SecretID:  secretID,
 		SecretKey: secretKey,
@@ -144,7 +147,10 @@ func savePersistedSettings(settings persistedSettings) error {
 }
 
 func savePersistedVaultPaths(paths []string) error {
-	cleaned := cleanPaths(paths)
+	cleaned, errs := validateVaultRoots(paths)
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
 	if len(cleaned) == 0 {
 		return fmt.Errorf("at least one vault path is required")
 	}

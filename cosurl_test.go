@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,9 @@ func TestKeyFromURLOrKey(t *testing.T) {
 
 func TestScanVaultReferencesFixture(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".obsidian"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	md := dir + "/note.md"
 	body := "![|768](https://example-bucket.cos.ap-testing.myqcloud.com/obsidian/20240120160143.png)\n"
 	if err := os.WriteFile(md, []byte(body), 0o644); err != nil {

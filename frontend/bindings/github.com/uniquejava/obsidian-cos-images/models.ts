@@ -14,6 +14,11 @@ export interface AppConfig {
     "cosPrefix": string;
     "cosBaseURL": string;
     "vaultPaths": string[] | null;
+
+    /**
+     * VaultPathErrors are non-fatal startup checks (bad roots, missing .obsidian/).
+     */
+    "vaultPathErrors": string[] | null;
     "showThumbnails": boolean;
     "secretIdSet": boolean;
     "secretKeySet": boolean;

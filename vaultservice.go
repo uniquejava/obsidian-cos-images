@@ -111,19 +111,20 @@ func (s *VaultService) ReadNote(notePath string) (string, error) {
 }
 
 func pathUnderAnyVault(absNote string, vaultPaths []string) (bool, error) {
+	note, err := resolveExistingPath(absNote)
+	if err != nil {
+		return false, fmt.Errorf("resolve note path: %w", err)
+	}
 	for _, root := range vaultPaths {
 		root = strings.TrimSpace(root)
 		if root == "" {
 			continue
 		}
-		absRoot, err := filepath.Abs(root)
+		absRoot, err := resolveExistingPath(root)
 		if err != nil {
 			return false, fmt.Errorf("resolve vault path %q: %w", root, err)
 		}
-		if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
-			absRoot = resolved
-		}
-		rel, err := filepath.Rel(absRoot, absNote)
+		rel, err := filepath.Rel(absRoot, note)
 		if err != nil {
 			continue
 		}
@@ -156,16 +157,9 @@ func scanVaultReferences(vaultPaths []string, baseURL string) (map[string]*refAc
 		if root == "" {
 			continue
 		}
-		absRoot, err := filepath.Abs(root)
+		absRoot, err := validateVaultRoot(root)
 		if err != nil {
-			return nil, fmt.Errorf("resolve vault path %q: %w", root, err)
-		}
-		info, err := os.Stat(absRoot)
-		if err != nil {
-			return nil, fmt.Errorf("vault path %q: %w", absRoot, err)
-		}
-		if !info.IsDir() {
-			return nil, fmt.Errorf("vault path is not a directory: %s", absRoot)
+			return nil, err
 		}
 
 		err = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
@@ -191,7 +185,7 @@ func scanVaultReferences(vaultPaths []string, baseURL string) (map[string]*refAc
 				return nil
 			}
 			urls := matcher.extractCOSURLs(string(data))
-			absNote, err := filepath.Abs(path)
+			absNote, err := resolveExistingPath(path)
 			if err != nil {
 				absNote = path
 			}

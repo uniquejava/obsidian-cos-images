@@ -8,6 +8,9 @@ import (
 
 func TestScanReferencesUniqueVsShared(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".obsidian"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	noteA := filepath.Join(dir, "a.md")
 	noteB := filepath.Join(dir, "b.md")
 	const base = "https://example-bucket.cos.ap-testing.myqcloud.com"
@@ -24,7 +27,10 @@ func TestScanReferencesUniqueVsShared(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	absA, _ := filepath.Abs(noteA)
+	absA, err := resolveExistingPath(noteA)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var unique, shared int
 	for key, acc := range refs {
 		if _, ok := acc.Notes[absA]; !ok {

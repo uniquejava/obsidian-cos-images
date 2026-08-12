@@ -14,7 +14,7 @@ func TestSaveAndLoadVaultPaths(t *testing.T) {
 
 	paths := []string{filepath.Join(tmp, "vault-a"), filepath.Join(tmp, "vault-b")}
 	for _, p := range paths {
-		if err := os.MkdirAll(p, 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(p, ".obsidian"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -39,6 +39,9 @@ func TestSaveAndLoadVaultPaths(t *testing.T) {
 	cfg := loadRuntimeConfig()
 	if len(cfg.VaultPaths) != 2 {
 		t.Fatalf("runtime vault paths = %v", cfg.VaultPaths)
+	}
+	if len(cfg.VaultPathErrors) != 0 {
+		t.Fatalf("unexpected vault path errors: %v", cfg.VaultPathErrors)
 	}
 	if !cfg.ShowThumbnails {
 		t.Fatal("expected ShowThumbnails true after save")

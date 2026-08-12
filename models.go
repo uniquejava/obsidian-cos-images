@@ -32,7 +32,9 @@ type AppConfig struct {
 	COSPrefix      string   `json:"cosPrefix"` // e.g. "obsidian/"
 	COSBaseURL     string   `json:"cosBaseURL"`
 	VaultPaths     []string `json:"vaultPaths"`
-	ShowThumbnails bool     `json:"showThumbnails"`
-	SecretIDSet    bool     `json:"secretIdSet"`
-	SecretKeySet   bool     `json:"secretKeySet"`
+	// VaultPathErrors are non-fatal startup checks (bad roots, missing .obsidian/).
+	VaultPathErrors []string `json:"vaultPathErrors"`
+	ShowThumbnails  bool     `json:"showThumbnails"`
+	SecretIDSet     bool     `json:"secretIdSet"`
+	SecretKeySet    bool     `json:"secretKeySet"`
 }
