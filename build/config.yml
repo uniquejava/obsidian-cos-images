@@ -7,7 +7,7 @@ version: '3'
 info:
   companyName: "Cyper"
   productName: "Obsidian COS Images"
-  productIdentifier: "com.cyper.obsidiancosimages"
+  productIdentifier: "click.yinsb.obsidiancosimages"
   description: "Manage PicGo uploads on Tencent COS referenced by Obsidian notes"
   copyright: "© 2026, Cyper"
   comments: "Desktop image manager for Obsidian + Tencent COS"

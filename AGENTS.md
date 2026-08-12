@@ -49,8 +49,8 @@ docs/screenshot.png  # UI screenshot (README)
 ```
 
 Module: `github.com/uniquejava/obsidian-cos-images`  
-Bundle ID: `com.cyper.obsidiancosimages`  
-Sibling: `../video-editor-wails`
+Bundle ID: `click.yinsb.obsidiancosimages`  
+Sibling: `../video-editor-wails` (Wails); release Actions patterned after EggplantFred (`v*` → DMG)
 
 ## Run
 
@@ -103,4 +103,4 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 1. Optional: batch recompress for filtered rows; CDN purge guidance.
 2. Keep docs free of personal bucket/path values when editing.
-3. Screenshot: `docs/screenshot.png` (linked from README).
+3. Screenshots: `docs/screenshot.png` (Images), `docs/compress.png` (Compress) — linked from README.

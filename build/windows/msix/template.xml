@@ -25,7 +25,7 @@
         </Capabilities>
         <Applications>
             <Application
-                Id="com.cyper.obsidiancosimages"
+                Id="click.yinsb.obsidiancosimages"
                 Description="Manage PicGo / Tencent COS images used by Obsidian Markdown notes"
                 DisplayName="Obsidian COS Images"
                 ExecutableName="obsidian-cos-images"

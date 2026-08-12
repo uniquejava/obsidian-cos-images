@@ -8,7 +8,7 @@
   IgnorableNamespaces="uap3">
   
   <Identity 
-    Name="com.cyper.obsidiancosimages"
+    Name="click.yinsb.obsidiancosimages"
     Publisher="CN=cyper"
     Version="0.1.0.0" 
     ProcessorArchitecture="arm64" />
@@ -29,7 +29,7 @@
   </Resources>
   
   <Applications>
-    <Application Id="com.cyper.obsidiancosimages" Executable="obsidian-cos-images" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="click.yinsb.obsidiancosimages" Executable="obsidian-cos-images" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="Obsidian COS Images"
         Description="Manage PicGo / Tencent COS images used by Obsidian Markdown notes"
