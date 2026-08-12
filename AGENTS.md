@@ -10,19 +10,21 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 
 ## Status
 
-Phase 1–4 mostly done: COS list/delete, vault reference scan, orphans, unique-only cascade preview/delete. UI has Images / Orphans / Cascade tabs with size + unused filters. Polish (thumbnails, export) still open.
+Core features done (list/delete, vault scan, orphans, unique-only cascade) plus polish: thumbnails, date-range filter, orphan CSV/JSON export, SaveVaultPaths persistence, vault scan progress events.
 
 ## Layout
 
 ```
 main.go                 # app window + service registration
 models.go               # ImageObject, ImageRef, AppConfig, …
+config.go               # env + persisted vault paths (~/Library/Application Support/…)
 configservice.go        # settings / vault paths
 cosservice.go           # COS list + delete
-vaultservice.go         # Markdown URL scan
+vaultservice.go         # Markdown URL scan (+ vault:scan events)
 cleanupservice.go       # orphans + cascade delete
+export.go               # orphan CSV/JSON export
 errors.go
-frontend/src/App.tsx    # placeholder UI
+frontend/src/App.tsx    # Images / Orphans / Cascade / Settings UI
 docs/REQUIREMENTS.md    # full requirements
 .env.example            # COS credential keys (no secrets)
 ```
@@ -73,6 +75,5 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Next session starting point
 
-1. Polish: thumbnails, date-range filter, progress events, export orphan CSV/JSON.
-2. Optional: SaveVaultPaths persistence beyond env.
-3. Live-test cascade against a disposable note on the backup vault.
+1. Live-test against real COS + vaults (delete orphans carefully; always preview first).
+2. Optional UX: virtualized table for very large lists, date histogram, note file picker.

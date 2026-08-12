@@ -17,7 +17,15 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as $models from "./models.js";
 
 /**
- * GetConfig returns current config (stubs until implementation).
+ * ConfigFilePath returns where vault settings are stored (for UI display).
+ * @returns {$CancellablePromise<string>}
+ */
+export function ConfigFilePath() {
+    return $Call.ByID(3180221696);
+}
+
+/**
+ * GetConfig returns current config from env / persisted settings (no secrets).
  * @returns {$CancellablePromise<$models.AppConfig>}
  */
 export function GetConfig() {
@@ -28,6 +36,7 @@ export function GetConfig() {
 
 /**
  * SaveVaultPaths updates which vault roots are scanned for Markdown references.
+ * Paths are persisted under the user config directory.
  * @param {string[]} paths
  * @returns {$CancellablePromise<void>}
  */

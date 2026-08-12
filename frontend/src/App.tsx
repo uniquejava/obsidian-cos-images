@@ -1,4 +1,5 @@
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
+import {Events} from '@wailsio/runtime';
 import {
   AppConfig,
   CascadeDeletePreview,
@@ -11,7 +12,7 @@ import {
   VaultService,
 } from '../bindings/github.com/uniquejava/obsidian-cos-images';
 
-type Tab = 'images' | 'orphans' | 'cascade';
+type Tab = 'images' | 'orphans' | 'cascade' | 'settings';
 type SortBy = 'uploadTime' | 'size';
 
 function formatBytes(n: number): string {
@@ -39,16 +40,50 @@ function shortPath(p: string): string {
   return parts.slice(-3).join('/');
 }
 
+/** COS image processing thumbnail (falls back to full URL if processing unavailable). */
+function thumbURL(url: string): string {
+  if (!url) return '';
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}imageMogr2/thumbnail/64x`;
+}
+
+function downloadText(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], {type: mime});
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(href);
+}
+
+function dayStart(isoDate: string): number | null {
+  if (!isoDate) return null;
+  const d = new Date(`${isoDate}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function dayEnd(isoDate: string): number | null {
+  if (!isoDate) return null;
+  const d = new Date(`${isoDate}T23:59:59.999`);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+
 function App() {
   const [tab, setTab] = useState<Tab>('images');
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [configPath, setConfigPath] = useState('');
+  const [vaultPathsText, setVaultPathsText] = useState('');
   const [images, setImages] = useState<ImageObject[]>([]);
   const [refs, setRefs] = useState<ImageRef[]>([]);
   const [orphans, setOrphans] = useState<OrphanImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [scanStatus, setScanStatus] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('uploadTime');
   const [minSizeMB, setMinSizeMB] = useState(0);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [unusedOnly, setUnusedOnly] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [detailKey, setDetailKey] = useState<string | null>(null);
@@ -63,19 +98,57 @@ function App() {
     return m;
   }, [refs]);
 
+  const refreshConfig = async () => {
+    const cfg = await ConfigService.GetConfig();
+    setConfig(cfg);
+    setVaultPathsText((cfg.vaultPaths ?? []).join('\n'));
+    try {
+      const path = await ConfigService.ConfigFilePath();
+      setConfigPath(path ?? '');
+    } catch {
+      setConfigPath('');
+    }
+  };
+
   useEffect(() => {
-    ConfigService.GetConfig()
-      .then(setConfig)
-      .catch((e: unknown) => setError(String(e)));
+    refreshConfig().catch((e: unknown) => setError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    const off = Events.On('vault:scan', (ev: {data?: unknown}) => {
+      const raw = Array.isArray(ev?.data) ? ev.data[0] : ev?.data;
+      const p = raw as {
+        filesScanned?: number;
+        refsFound?: number;
+        currentPath?: string;
+        done?: boolean;
+      } | null;
+      if (!p) return;
+      if (p.done) {
+        setScanStatus(`Scan done · ${p.filesScanned ?? 0} notes · ${p.refsFound ?? 0} keys`);
+        return;
+      }
+      setScanStatus(
+        `Scanning… ${p.filesScanned ?? 0} notes · ${p.refsFound ?? 0} keys` +
+          (p.currentPath ? ` · ${shortPath(p.currentPath)}` : ''),
+      );
+    });
+    return () => {
+      if (typeof off === 'function') off();
+    };
   }, []);
 
   const loadImagesAndRefs = async () => {
     setLoading(true);
     setError('');
+    setScanStatus('Scanning vaults…');
     try {
       const [imgs, scanned] = await Promise.all([
         COSService.ListImages(),
-        VaultService.ScanReferences().catch(() => [] as ImageRef[]),
+        VaultService.ScanReferences().catch((e: unknown) => {
+          setError(String(e));
+          return [] as ImageRef[];
+        }),
       ]);
       setImages(imgs ?? []);
       setRefs(scanned ?? []);
@@ -126,15 +199,26 @@ function App() {
 
   const filteredImages = useMemo(() => {
     const minBytes = minSizeMB > 0 ? minSizeMB * 1024 * 1024 : 0;
+    const fromTs = dayStart(dateFrom);
+    const toTs = dayEnd(dateTo);
     let list = images.filter((img) => (img.size || 0) >= minBytes);
     if (unusedOnly) {
       list = list.filter((img) => !refByKey.has(img.key));
+    }
+    if (fromTs != null || toTs != null) {
+      list = list.filter((img) => {
+        const t = new Date(img.uploadTime).getTime();
+        if (Number.isNaN(t)) return false;
+        if (fromTs != null && t < fromTs) return false;
+        if (toTs != null && t > toTs) return false;
+        return true;
+      });
     }
     return [...list].sort((a, b) => {
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       return new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime();
     });
-  }, [images, minSizeMB, unusedOnly, refByKey, sortBy]);
+  }, [images, minSizeMB, unusedOnly, refByKey, sortBy, dateFrom, dateTo]);
 
   const totalBytes = filteredImages.reduce((s, img) => s + (img.size || 0), 0);
   const orphanBytes = orphans.reduce((s, img) => s + (img.size || 0), 0);
@@ -161,6 +245,42 @@ function App() {
       setSelectedKeys(new Set());
       if (tab === 'orphans') await loadOrphans();
       else await loadImagesAndRefs();
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportOrphans = async (format: 'csv' | 'json') => {
+    setLoading(true);
+    setError('');
+    try {
+      const body = await CleanupService.ExportOrphans(format);
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      downloadText(
+        `cos-orphans-${stamp}.${format}`,
+        body ?? '',
+        format === 'json' ? 'application/json' : 'text/csv',
+      );
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveVaultPaths = async () => {
+    const paths = vaultPathsText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    setLoading(true);
+    setError('');
+    try {
+      await ConfigService.SaveVaultPaths(paths);
+      await refreshConfig();
+      await loadImagesAndRefs();
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -219,28 +339,25 @@ function App() {
   return (
     <main style={{fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 1280}}>
       <h1 style={{marginTop: 0}}>Obsidian COS Images</h1>
-      <p style={{color: '#555', marginBottom: 16}}>
+      <p style={{color: '#555', marginBottom: 8}}>
         Prefix <code>{config?.cosPrefix ?? 'obsidian/'}</code>
         {config && (
           <>
             {' '}
             · credentials {config.secretIdSet && config.secretKeySet ? 'ready' : 'missing (.env)'}
             {' '}
-            · {refs.length} referenced keys from vault scan
+            · {refs.length} referenced keys
           </>
         )}
       </p>
+      {scanStatus && <p style={{color: '#71717a', marginTop: 0, fontSize: 13}}>{scanStatus}</p>}
 
       <div style={{display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap'}}>
-        <button type="button" style={tabStyle('images')} onClick={() => setTab('images')}>
-          Images
-        </button>
-        <button type="button" style={tabStyle('orphans')} onClick={() => setTab('orphans')}>
-          Orphans
-        </button>
-        <button type="button" style={tabStyle('cascade')} onClick={() => setTab('cascade')}>
-          Cascade
-        </button>
+        {(['images', 'orphans', 'cascade', 'settings'] as Tab[]).map((t) => (
+          <button key={t} type="button" style={tabStyle(t)} onClick={() => setTab(t)}>
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
       </div>
 
       {error && (
@@ -263,15 +380,23 @@ function App() {
               </select>
             </label>
             <label>
-              Min size (MB){' '}
+              Min MB{' '}
               <input
                 type="number"
                 min={0}
                 step={0.1}
                 value={minSizeMB}
                 onChange={(e) => setMinSizeMB(Number(e.target.value) || 0)}
-                style={{width: 72}}
+                style={{width: 64}}
               />
+            </label>
+            <label>
+              From{' '}
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            </label>
+            <label>
+              To{' '}
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
             </label>
             <label style={{display: 'flex', gap: 6, alignItems: 'center'}}>
               <input
@@ -308,6 +433,12 @@ function App() {
           <div style={{display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap'}}>
             <button type="button" onClick={loadOrphans} disabled={loading}>
               {loading ? 'Loading…' : 'Refresh orphans'}
+            </button>
+            <button type="button" disabled={loading} onClick={() => exportOrphans('csv')}>
+              Export CSV
+            </button>
+            <button type="button" disabled={loading} onClick={() => exportOrphans('json')}>
+              Export JSON
             </button>
             <button
               type="button"
@@ -371,7 +502,18 @@ function App() {
               </h3>
               <ul>
                 {(cascadePreview.images ?? []).map((img) => (
-                  <li key={img.key}>
+                  <li key={img.key} style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+                    <img
+                      src={thumbURL(img.url)}
+                      alt=""
+                      width={32}
+                      height={32}
+                      loading="lazy"
+                      style={{objectFit: 'cover', background: '#f4f4f5'}}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.visibility = 'hidden';
+                      }}
+                    />
                     <code>{img.key}</code> · {formatBytes(img.size)}
                   </li>
                 ))}
@@ -386,6 +528,32 @@ function App() {
               </ul>
             </div>
           )}
+        </section>
+      )}
+
+      {tab === 'settings' && (
+        <section>
+          <p style={{color: '#555'}}>
+            One vault root per line. Saved to local config (no secrets). Env{' '}
+            <code>VAULT_PATHS</code> is used only when no saved config exists.
+          </p>
+          {configPath && (
+            <p style={{fontSize: 13, color: '#71717a'}}>
+              Config file: <code>{configPath}</code>
+            </p>
+          )}
+          <textarea
+            value={vaultPathsText}
+            onChange={(e) => setVaultPathsText(e.target.value)}
+            rows={6}
+            style={{width: '100%', fontFamily: 'ui-monospace, monospace', padding: 10}}
+            placeholder="/path/to/Obsidian/Documents"
+          />
+          <div style={{marginTop: 12}}>
+            <button type="button" onClick={saveVaultPaths} disabled={loading}>
+              Save vault paths
+            </button>
+          </div>
         </section>
       )}
 
@@ -436,11 +604,12 @@ function ImageTable({
   onOpen: (key: string) => void;
 }) {
   return (
-    <div style={{overflow: 'auto', border: '1px solid #e4e4e7', borderRadius: 8}}>
+    <div style={{overflow: 'auto', border: '1px solid #e4e4e7', borderRadius: 8, maxHeight: '70vh'}}>
       <table style={{width: '100%', borderCollapse: 'collapse', fontSize: 14}}>
         <thead>
-          <tr style={{background: '#f4f4f5', textAlign: 'left'}}>
+          <tr style={{background: '#f4f4f5', textAlign: 'left', position: 'sticky', top: 0}}>
             <th style={{padding: '10px 12px'}}></th>
+            <th style={{padding: '10px 12px'}}>Thumb</th>
             <th style={{padding: '10px 12px'}}>Key</th>
             <th style={{padding: '10px 12px'}}>Size</th>
             <th style={{padding: '10px 12px'}}>Upload time</th>
@@ -451,7 +620,7 @@ function ImageTable({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={6} style={{padding: 16, color: '#71717a'}}>
+              <td colSpan={7} style={{padding: 16, color: '#71717a'}}>
                 No rows.
               </td>
             </tr>
@@ -465,6 +634,23 @@ function ImageTable({
                     type="checkbox"
                     checked={selectedKeys.has(img.key)}
                     onChange={() => onToggle(img.key)}
+                  />
+                </td>
+                <td style={{padding: '6px 12px'}}>
+                  <img
+                    src={thumbURL(img.url)}
+                    alt=""
+                    width={40}
+                    height={40}
+                    loading="lazy"
+                    style={{objectFit: 'cover', background: '#f4f4f5', display: 'block'}}
+                    onError={(e) => {
+                      const el = e.target as HTMLImageElement;
+                      if (el.dataset.fallback !== '1') {
+                        el.dataset.fallback = '1';
+                        el.src = img.url;
+                      }
+                    }}
                   />
                 </td>
                 <td style={{padding: '8px 12px', fontFamily: 'ui-monospace, monospace'}}>
@@ -491,14 +677,7 @@ function ImageTable({
                   {formatTime(img.uploadTime)}
                 </td>
                 <td style={{padding: '8px 12px'}}>{noteCount}</td>
-                <td
-                  style={{
-                    padding: '8px 12px',
-                    maxWidth: 220,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
+                <td style={{padding: '8px 12px'}}>
                   <a href={img.url} target="_blank" rel="noreferrer">
                     open
                   </a>

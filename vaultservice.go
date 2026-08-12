@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // VaultService scans Obsidian Markdown files for COS image URLs.
@@ -21,6 +23,14 @@ var skipDirNames = map[string]struct{}{
 	".trash":       {},
 	".git":         {},
 	"node_modules": {},
+}
+
+// VaultScanProgress is emitted on "vault:scan" while ScanReferences runs.
+type VaultScanProgress struct {
+	FilesScanned int    `json:"filesScanned"`
+	RefsFound    int    `json:"refsFound"`
+	CurrentPath  string `json:"currentPath"`
+	Done         bool   `json:"done"`
 }
 
 // ScanReferences walks configured vault paths and maps image URL → note paths.
@@ -64,6 +74,9 @@ func scanVaultReferences(vaultPaths []string, baseURL string) (map[string]*refAc
 	}
 
 	refs := make(map[string]*refAccum)
+	filesScanned := 0
+	emitVaultScan(VaultScanProgress{Done: false})
+
 	for _, root := range vaultPaths {
 		root = strings.TrimSpace(root)
 		if root == "" {
@@ -83,7 +96,6 @@ func scanVaultReferences(vaultPaths []string, baseURL string) (map[string]*refAc
 
 		err = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				// iCloud / permission hiccups: skip this node, keep scanning.
 				if d != nil && d.IsDir() {
 					return filepath.SkipDir
 				}
@@ -99,14 +111,12 @@ func scanVaultReferences(vaultPaths []string, baseURL string) (map[string]*refAc
 			if !strings.EqualFold(filepath.Ext(name), ".md") {
 				return nil
 			}
+			filesScanned++
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return nil
 			}
 			urls := matcher.extractCOSURLs(string(data))
-			if len(urls) == 0 {
-				return nil
-			}
 			absNote, err := filepath.Abs(path)
 			if err != nil {
 				absNote = path
@@ -127,13 +137,35 @@ func scanVaultReferences(vaultPaths []string, baseURL string) (map[string]*refAc
 				}
 				acc.Notes[absNote] = struct{}{}
 			}
+			if filesScanned == 1 || filesScanned%50 == 0 {
+				emitVaultScan(VaultScanProgress{
+					FilesScanned: filesScanned,
+					RefsFound:    len(refs),
+					CurrentPath:  absNote,
+					Done:         false,
+				})
+			}
 			return nil
 		})
 		if err != nil {
 			return nil, fmt.Errorf("scan vault %s: %w", absRoot, err)
 		}
 	}
+
+	emitVaultScan(VaultScanProgress{
+		FilesScanned: filesScanned,
+		RefsFound:    len(refs),
+		Done:         true,
+	})
 	return refs, nil
+}
+
+func emitVaultScan(progress VaultScanProgress) {
+	app := application.Get()
+	if app == nil {
+		return
+	}
+	app.Event.Emit("vault:scan", progress)
 }
 
 func refsToSlice(refs map[string]*refAccum) []ImageRef {

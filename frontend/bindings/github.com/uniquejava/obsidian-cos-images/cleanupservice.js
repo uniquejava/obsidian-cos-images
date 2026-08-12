@@ -27,6 +27,16 @@ export function CascadeDeleteNoteImages(notePath, forceUniqueOnly) {
 }
 
 /**
+ * ExportOrphans returns an orphan report as CSV or JSON text (dry-run friendly).
+ * format: "csv" or "json" (case-insensitive).
+ * @param {string} format
+ * @returns {$CancellablePromise<string>}
+ */
+export function ExportOrphans(format) {
+    return $Call.ByID(2873360866, format);
+}
+
+/**
  * ListOrphans returns COS images not referenced by any scanned Markdown file.
  * @returns {$CancellablePromise<$models.OrphanImage[]>}
  */
