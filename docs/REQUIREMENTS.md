@@ -46,6 +46,7 @@ Ignore non-configured hosts for orphan logic.
 - Filters: size, date range; page size (20 / 50 / 100 / 200 / all).
 - Browse-only on Images; COS delete lives under Orphans.
 - Thumbnails **default off** (Settings); local cache when enabled.
+- Lightweight **toast** notifications for actions (success / Test connection) and sticky errors.
 
 ### 2. Reference mapping
 

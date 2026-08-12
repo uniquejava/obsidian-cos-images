@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Browser, Events} from '@wailsio/runtime';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -91,6 +91,30 @@ function cosConfigIncomplete(cfg: AppConfig | null): boolean {
   );
 }
 
+type ToastKind = 'success' | 'error';
+interface ToastState {
+  kind: ToastKind;
+  text: string;
+  sticky: boolean;
+}
+
+function Toast({toast, onClose}: {toast: ToastState; onClose: () => void}) {
+  return (
+    <div
+      className={`toast toast-${toast.kind}`}
+      role="status"
+      aria-live="polite"
+      onClick={onClose}
+      title="Dismiss"
+    >
+      <span className="toast-text">{toast.text}</span>
+      <span className="toast-close" aria-hidden>
+        ×
+      </span>
+    </div>
+  );
+}
+
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], {type: mime});
   const href = URL.createObjectURL(blob);
@@ -174,13 +198,12 @@ function App() {
   const [cosPrefix, setCosPrefix] = useState('obsidian/');
   const [cosBaseURL, setCosBaseURL] = useState('');
   const [cosSaveMsg, setCosSaveMsg] = useState('');
-  const [cosTestMsg, setCosTestMsg] = useState('');
-  const [cosTestOk, setCosTestOk] = useState(false);
   const [images, setImages] = useState<ImageObject[]>([]);
   const [refs, setRefs] = useState<ImageRef[]>([]);
   const [orphans, setOrphans] = useState<OrphanImage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastTimer = useRef<number | null>(null);
   const [scanStatus, setScanStatus] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('uploadTime');
   const [minSizeMB, setMinSizeMB] = useState(0);
@@ -199,6 +222,28 @@ function App() {
     return m;
   }, [refs]);
 
+  const pushToast = (kind: ToastKind, text: string, sticky = false) => {
+    if (toastTimer.current !== null) {
+      window.clearTimeout(toastTimer.current);
+      toastTimer.current = null;
+    }
+    setToast({kind, text, sticky});
+    if (!sticky) {
+      toastTimer.current = window.setTimeout(() => {
+        setToast(null);
+        toastTimer.current = null;
+      }, 6000);
+    }
+  };
+
+  const reportError = (e: unknown) => pushToast('error', String(e), true);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    };
+  }, []);
+
   const refreshConfig = async () => {
     const cfg = await ConfigService.GetConfig();
     setConfig(cfg);
@@ -210,12 +255,6 @@ function App() {
     setCosRegion(cfg.cosRegion ?? '');
     setCosPrefix(cfg.cosPrefix?.trim() ? cfg.cosPrefix : 'obsidian/');
     setCosBaseURL(cfg.cosBaseURL ?? '');
-    const vaultErrs = cfg.vaultPathErrors ?? [];
-    if (vaultErrs.length > 0) {
-      setError(vaultErrs.join('\n'));
-    } else {
-      setError('');
-    }
     try {
       const path = await ConfigService.ConfigFilePath();
       setConfigPath(path ?? '');
@@ -230,7 +269,7 @@ function App() {
       .then((cfg) => {
         if (cosConfigIncomplete(cfg)) setTab('settings');
       })
-      .catch((e: unknown) => setError(String(e)));
+      .catch((e: unknown) => reportError(e));
   }, []);
 
   useEffect(() => {
@@ -259,13 +298,12 @@ function App() {
 
   const loadImagesAndRefs = async () => {
     setLoading(true);
-    setError('');
     setScanStatus('Scanning vaults…');
     try {
       const [imgs, scanned] = await Promise.all([
         COSService.ListImages(),
         VaultService.ScanReferences().catch((e: unknown) => {
-          setError(String(e));
+          reportError(e);
           return [] as ImageRef[];
         }),
       ]);
@@ -273,7 +311,7 @@ function App() {
       setRefs(scanned ?? []);
       setSelectedKeys(new Set());
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -281,13 +319,12 @@ function App() {
 
   const loadOrphans = async () => {
     setLoading(true);
-    setError('');
     try {
       const list = await CleanupService.ListOrphans();
       setOrphans(list ?? []);
       setSelectedKeys(new Set());
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -363,7 +400,6 @@ function App() {
   const deleteSelected = async (keys: string[]) => {
     if (keys.length === 0) return;
     setLoading(true);
-    setError('');
     setConfirmDeleteCount(false);
     try {
       await COSService.DeleteImages(keys);
@@ -372,8 +408,9 @@ function App() {
         setPreviewImage(null);
       }
       await loadOrphans();
+      pushToast('success', `Deleted ${keys.length} object(s).`);
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -384,7 +421,6 @@ function App() {
     const key = previewImage.key;
     const idx = orphans.findIndex((o) => o.key === key);
     setLoading(true);
-    setError('');
     try {
       await COSService.DeleteImages([key]);
       const nextList = orphans.filter((o) => o.key !== key);
@@ -402,8 +438,9 @@ function App() {
       } else {
         setPreviewImage(nextList[idx]);
       }
+      pushToast('success', 'Deleted 1 object.');
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -411,7 +448,6 @@ function App() {
 
   const exportOrphans = async (format: 'csv' | 'json') => {
     setLoading(true);
-    setError('');
     try {
       const body = await CleanupService.ExportOrphans(format);
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -420,8 +456,9 @@ function App() {
         body ?? '',
         format === 'json' ? 'application/json' : 'text/csv',
       );
+      pushToast('success', `Exported orphans as ${format.toUpperCase()}.`);
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -433,12 +470,12 @@ function App() {
       .map((l) => l.trim())
       .filter(Boolean);
     setLoading(true);
-    setError('');
     try {
       await ConfigService.SaveVaultPaths(paths);
       await refreshConfig();
+      pushToast('success', 'Vault paths saved.');
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -455,16 +492,15 @@ function App() {
 
   const saveCOSSettings = async () => {
     setLoading(true);
-    setError('');
     setCosSaveMsg('');
-    setCosTestMsg('');
     try {
       await ConfigService.SaveCOSSettings(currentCOSSettings());
       setSecretKey('');
       setCosSaveMsg('COS settings saved.');
+      pushToast('success', 'COS settings saved.');
       await refreshConfig();
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -472,16 +508,11 @@ function App() {
 
   const testCOSConnection = async () => {
     setLoading(true);
-    setError('');
-    setCosTestMsg('');
-    setCosTestOk(false);
     try {
       const msg = await COSService.TestConnection(currentCOSSettings());
-      setCosTestMsg(msg ?? 'OK');
-      setCosTestOk(true);
+      pushToast('success', msg ?? 'Connection OK.');
     } catch (e: unknown) {
-      setCosTestMsg(String(e));
-      setCosTestOk(false);
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -492,21 +523,21 @@ function App() {
     try {
       await ConfigService.SaveShowThumbnails(enabled);
       setConfig((c) => (c ? {...c, showThumbnails: enabled} : c));
+      pushToast('success', enabled ? 'Thumbnails enabled.' : 'Thumbnails disabled.');
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
       setShowThumbnails(!enabled);
     }
   };
 
   const clearThumbCache = async () => {
     setLoading(true);
-    setError('');
     try {
       await COSService.ClearThumbnailCache();
       thumbMemory.clear();
-      window.alert('Local thumbnail cache cleared.');
+      pushToast('success', 'Local thumbnail cache cleared.');
     } catch (e: unknown) {
-      setError(String(e));
+      reportError(e);
     } finally {
       setLoading(false);
     }
@@ -579,7 +610,7 @@ function App() {
       </aside>
 
       <div className="main">
-        {error && <pre className="error-box">{error}</pre>}
+        {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
 
         {tab === 'images' && (
           <>
@@ -826,11 +857,6 @@ function App() {
                 {config?.cosBucket ? ` · ${config.cosBucket}` : ''}
               </span>
             </div>
-            {cosTestMsg && (
-              <pre className={cosTestOk ? 'ok-box' : 'error-box'} style={{marginTop: 12, marginLeft: 0, marginRight: 0}}>
-                {cosTestMsg}
-              </pre>
-            )}
 
             <h3>Thumbnails</h3>
             <p className="muted">

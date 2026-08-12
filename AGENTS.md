@@ -95,5 +95,5 @@ export ALL_PROXY=http://127.0.0.1:7897
 ## Next session starting point
 
 1. Live-test Settings save on a clean config (no `.env`) and with `.env` fallback.
-2. Optional UX: virtualized table, note file picker.
+2. Optional UX: virtualized table, note file picker; system native dialogs for destructive confirms.
 3. Keep docs free of personal bucket/path values when editing.
