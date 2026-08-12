@@ -10,7 +10,7 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 
 ## Status
 
-COS list wired: `ConfigService.GetConfig` reads `.env` / env; `COSService.ListImages` lists prefix objects with size + UploadTime sort. Vault / orphan / cascade still stubs.
+Phase 1–4 mostly done: COS list/delete, vault reference scan, orphans, unique-only cascade preview/delete. UI has Images / Orphans / Cascade tabs with size + unused filters. Polish (thumbnails, export) still open.
 
 ## Layout
 
@@ -73,6 +73,6 @@ export ALL_PROXY=http://127.0.0.1:7897
 
 ## Next session starting point
 
-1. Implement `VaultService.ScanReferences` over vault paths from config.
-2. Orphans + cascade (dry-run first).
-3. Filters (size / date / unused) and thumbnails.
+1. Polish: thumbnails, date-range filter, progress events, export orphan CSV/JSON.
+2. Optional: SaveVaultPaths persistence beyond env.
+3. Live-test cascade against a disposable note on the backup vault.

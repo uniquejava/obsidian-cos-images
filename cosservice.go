@@ -22,7 +22,7 @@ func NewCOSService() *COSService {
 }
 
 var (
-	picGoTimestampRe = regexp.MustCompile(`(?:^|[^0-9])(\d{14})(\d{0,3})(?:[^0-9]|$)`)
+	picGoTimestampRe    = regexp.MustCompile(`(?:^|[^0-9])(\d{14})(\d{0,3})(?:[^0-9]|$)`)
 	lastModifiedLayouts = []string{
 		time.RFC3339,
 		"2006-01-02T15:04:05.000Z",
@@ -100,8 +100,56 @@ func (s *COSService) ListImages() ([]ImageObject, error) {
 
 // DeleteImages deletes COS objects by key. Prefer dry-run / confirm in UI first.
 func (s *COSService) DeleteImages(keys []string) error {
-	_ = keys
-	return ErrNotImplemented
+	cleaned := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		k = strings.TrimSpace(strings.TrimPrefix(k, "/"))
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		cleaned = append(cleaned, k)
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+
+	cfg := loadRuntimeConfig()
+	if cfg.SecretID == "" || cfg.SecretKey == "" {
+		return fmt.Errorf("%w: set COS_SECRET_ID and COS_SECRET_KEY (see .env.example)", ErrMissingCredentials)
+	}
+	client, err := newCOSClient(cfg)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	const batchSize = 1000
+	for i := 0; i < len(cleaned); i += batchSize {
+		end := i + batchSize
+		if end > len(cleaned) {
+			end = len(cleaned)
+		}
+		objs := make([]cos.Object, 0, end-i)
+		for _, k := range cleaned[i:end] {
+			objs = append(objs, cos.Object{Key: k})
+		}
+		result, _, err := client.Object.DeleteMulti(ctx, &cos.ObjectDeleteMultiOptions{
+			Objects: objs,
+			Quiet:   false,
+		})
+		if err != nil {
+			return fmt.Errorf("delete COS objects: %w", err)
+		}
+		if result != nil && len(result.Errors) > 0 {
+			e := result.Errors[0]
+			return fmt.Errorf("delete COS object %s: %s (%s)", e.Key, e.Message, e.Code)
+		}
+	}
+	return nil
 }
 
 func newCOSClient(cfg runtimeConfig) (*cos.Client, error) {
