@@ -29,8 +29,9 @@ const DEFAULT_PAGE_SIZE = 50;
 const PAGE_SIZE_OPTIONS: {value: number; label: string}[] = [
   {value: 20, label: '20'},
   {value: 50, label: '50'},
-  {value: 100, label: '100'},
   {value: 200, label: '200'},
+  {value: 1000, label: '1000'},
+  {value: 2000, label: '2000'},
   {value: 0, label: 'All'},
 ];
 
@@ -89,6 +90,26 @@ function primaryNoteLabel(notes: string[] | null | undefined): {label: string; t
   };
 }
 
+/** Case-insensitive substring match; space-separated tokens are AND'd. */
+function matchesNoteQuery(
+  notes: string[] | null | undefined,
+  objectKey: string,
+  query: string,
+): boolean {
+  const tokens = query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+  const haystacks = [objectKey.toLowerCase()];
+  for (const n of notes ?? []) {
+    haystacks.push(n.toLowerCase());
+    haystacks.push(noteTitleFromPath(n).toLowerCase());
+  }
+  return tokens.every((t) => haystacks.some((h) => h.includes(t)));
+}
+
 function cosConfigIncomplete(cfg: AppConfig | null): boolean {
   if (!cfg) return true;
   return !(
@@ -134,16 +155,11 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(href);
 }
 
-function dayStart(isoDate: string): number | null {
-  if (!isoDate) return null;
-  const d = new Date(`${isoDate}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? null : d.getTime();
-}
-
-function dayEnd(isoDate: string): number | null {
-  if (!isoDate) return null;
-  const d = new Date(`${isoDate}T23:59:59.999`);
-  return Number.isNaN(d.getTime()) ? null : d.getTime();
+function uploadYear(iso: string): number | null {
+  if (!iso || iso.startsWith('0001-01-01')) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getFullYear();
 }
 
 function CachedThumb({keyName, size = 40}: {keyName: string; size?: number}) {
@@ -215,8 +231,8 @@ function App() {
   const [scanStatus, setScanStatus] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('uploadTime');
   const [minSizeKB, setMinSizeKB] = useState(0);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [yearFilter, setYearFilter] = useState(0);
+  const [noteQuery, setNoteQuery] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [confirmDeleteCount, setConfirmDeleteCount] = useState(false);
   const [previewImage, setPreviewImage] = useState<ImageObject | null>(null);
@@ -346,25 +362,31 @@ function App() {
     setNoteReader({paths, active: paths[0]});
   };
 
+  const uploadYears = useMemo(() => {
+    const years = new Set<number>();
+    for (const img of images) {
+      const y = uploadYear(img.uploadTime);
+      if (y != null) years.add(y);
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [images]);
+
   const filteredImages = useMemo(() => {
     const minBytes = minSizeKB > 0 ? minSizeKB * 1024 : 0;
-    const fromTs = dayStart(dateFrom);
-    const toTs = dayEnd(dateTo);
     let list = images.filter((img) => (img.size || 0) >= minBytes);
-    if (fromTs != null || toTs != null) {
-      list = list.filter((img) => {
-        const t = new Date(img.uploadTime).getTime();
-        if (Number.isNaN(t)) return false;
-        if (fromTs != null && t < fromTs) return false;
-        if (toTs != null && t > toTs) return false;
-        return true;
-      });
+    if (yearFilter > 0) {
+      list = list.filter((img) => uploadYear(img.uploadTime) === yearFilter);
+    }
+    if (noteQuery.trim()) {
+      list = list.filter((img) =>
+        matchesNoteQuery(refByKey.get(img.key)?.notes, img.key, noteQuery),
+      );
     }
     return [...list].sort((a, b) => {
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       return new Date(b.uploadTime).getTime() - new Date(a.uploadTime).getTime();
     });
-  }, [images, minSizeKB, sortBy, dateFrom, dateTo]);
+  }, [images, minSizeKB, sortBy, yearFilter, noteQuery, refByKey]);
 
   const visibleImages = applyPageSize(filteredImages, imagesPageSize);
   const totalBytes = filteredImages.reduce((s, img) => s + (img.size || 0), 0);
@@ -669,13 +691,36 @@ function App() {
                 ≥500 KB
               </button>
               <label>
-                From
-                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                Year
+                <select
+                  value={yearFilter}
+                  onChange={(e) => setYearFilter(Number(e.target.value) || 0)}
+                >
+                  <option value={0}>All</option>
+                  {uploadYears.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
               </label>
-              <label>
-                To
-                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              <label className="toolbar-note-search">
+                Note
+                <input
+                  type="search"
+                  value={noteQuery}
+                  onChange={(e) => setNoteQuery(e.target.value)}
+                  placeholder="Title or keyword…"
+                  title="Fuzzy match note title, path, or object key. Space-separated words are AND."
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </label>
+              {noteQuery.trim() ? (
+                <button type="button" onClick={() => setNoteQuery('')} title="Clear note filter">
+                  Clear
+                </button>
+              ) : null}
               <label>
                 Page size
                 <select

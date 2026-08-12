@@ -185,6 +185,11 @@ pre,
   font-size: 13px;
 }
 
+.toolbar-note-search input {
+  width: 180px;
+  min-width: 140px;
+}
+
 .content {
   flex: 1 1 auto;
   min-height: 0;
@@ -329,6 +334,7 @@ button.danger:hover:not(:disabled) {
 }
 
 input[type="text"],
+input[type="search"],
 input[type="number"],
 input[type="date"],
 input[type="password"],

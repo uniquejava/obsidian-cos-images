@@ -43,7 +43,7 @@ Ignore non-configured hosts for orphan logic.
 - List COS images under the configured prefix.
 - Sort by **upload time** (prefer timestamp in object key; else `LastModified`).
 - Show size, upload time, key, public URL; optional preview.
-- Filters: size, date range; page size (20 / 50 / 100 / 200 / all).
+- Filters: size, upload year (one year or all), note title/keyword (fuzzy); page size (20 / 50 / 200 / 1000 / 2000 / all).
 - Browse-only on Images; COS delete lives under Orphans.
 - Thumbnails **default off** (Settings); local cache when enabled.
 - Lightweight **toast** notifications for actions (success / Test connection) and sticky errors.
