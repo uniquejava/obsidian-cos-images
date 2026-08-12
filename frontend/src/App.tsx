@@ -16,6 +16,11 @@ import {
 type Tab = 'images' | 'orphans' | 'settings';
 type SortBy = 'uploadTime' | 'size';
 
+/** Keep in sync with build Info.plist / windows info.json. */
+const APP_VERSION = '0.1.0';
+const APP_AUTHOR = 'cyper';
+const APP_GITHUB_URL = 'https://github.com/uniquejava/obsidian-cos-images';
+
 const DEFAULT_PAGE_SIZE = 50;
 const PAGE_SIZE_OPTIONS: {value: number; label: string}[] = [
   {value: 20, label: '20'},
@@ -197,7 +202,6 @@ function App() {
   const [cosRegion, setCosRegion] = useState('');
   const [cosPrefix, setCosPrefix] = useState('obsidian/');
   const [cosBaseURL, setCosBaseURL] = useState('');
-  const [cosSaveMsg, setCosSaveMsg] = useState('');
   const [images, setImages] = useState<ImageObject[]>([]);
   const [refs, setRefs] = useState<ImageRef[]>([]);
   const [orphans, setOrphans] = useState<OrphanImage[]>([]);
@@ -213,6 +217,7 @@ function App() {
   const [confirmDeleteCount, setConfirmDeleteCount] = useState(false);
   const [previewImage, setPreviewImage] = useState<ImageObject | null>(null);
   const [noteReader, setNoteReader] = useState<{paths: string[]; active: string} | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [imagesPageSize, setImagesPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [orphansPageSize, setOrphansPageSize] = useState(DEFAULT_PAGE_SIZE);
 
@@ -492,11 +497,9 @@ function App() {
 
   const saveCOSSettings = async () => {
     setLoading(true);
-    setCosSaveMsg('');
     try {
       await ConfigService.SaveCOSSettings(currentCOSSettings());
       setSecretKey('');
-      setCosSaveMsg('COS settings saved.');
       pushToast('success', 'COS settings saved.');
       await refreshConfig();
     } catch (e: unknown) {
@@ -544,17 +547,21 @@ function App() {
   };
 
   useEffect(() => {
-    if (!previewImage && !noteReader) return;
+    if (!previewImage && !noteReader && !aboutOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (noteReader) {
-        if (e.key === 'Escape') setNoteReader(null);
-        return;
-      }
-      if (!previewImage) return;
       if (e.key === 'Escape') {
-        setPreviewImage(null);
+        if (aboutOpen) {
+          setAboutOpen(false);
+          return;
+        }
+        if (noteReader) {
+          setNoteReader(null);
+          return;
+        }
+        if (previewImage) setPreviewImage(null);
         return;
       }
+      if (aboutOpen || noteReader || !previewImage) return;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         stepPreview(-1);
@@ -567,19 +574,14 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [previewImage, noteReader, previewIndex, previewList]);
+  }, [previewImage, noteReader, aboutOpen, previewIndex, previewList]);
 
   return (
     <div className="app no-drag">
       <aside className="sidebar">
         <div className="brand">
           Obsidian COS
-          <small>
-            {config?.cosPrefix ?? 'obsidian/'}
-            {config
-              ? ` · ${config.secretIdSet && config.secretKeySet ? 'creds ok' : 'creds missing'}`
-              : ''}
-          </small>
+          <small>{config?.cosPrefix ?? 'obsidian/'}</small>
         </div>
         {TABS.map((t) => (
           <button
@@ -598,14 +600,24 @@ function App() {
             {t.label}
           </button>
         ))}
-        <div className="sidebar-meta">
-          {refs.length} referenced keys
-          {scanStatus ? (
-            <>
-              <br />
-              {scanStatus}
-            </>
-          ) : null}
+        <div className="sidebar-footer">
+          <div className="sidebar-meta">
+            {refs.length} referenced keys
+            {scanStatus ? (
+              <>
+                <br />
+                {scanStatus}
+              </>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="sidebar-about"
+            onClick={() => setAboutOpen(true)}
+            title="About this app"
+          >
+            About · v{APP_VERSION}
+          </button>
         </div>
       </aside>
 
@@ -850,12 +862,6 @@ function App() {
               <button type="button" onClick={testCOSConnection} disabled={loading}>
                 {loading ? 'Working…' : 'Test connection'}
               </button>
-              {cosSaveMsg && <span className="muted">{cosSaveMsg}</span>}
-              <span className="muted">
-                Status:{' '}
-                {config?.secretIdSet && config?.secretKeySet ? 'credentials set' : 'credentials missing'}
-                {config?.cosBucket ? ` · ${config.cosBucket}` : ''}
-              </span>
             </div>
 
             <h3>Thumbnails</h3>
@@ -921,6 +927,60 @@ function App() {
           onClose={() => setNoteReader(null)}
         />
       )}
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+    </div>
+  );
+}
+
+function AboutDialog({onClose}: {onClose: () => void}) {
+  return (
+    <div
+      className="lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label="About Obsidian COS Images"
+      onClick={onClose}
+    >
+      <div className="about-card" onClick={(e) => e.stopPropagation()}>
+        <div className="lightbox-bar">
+          <div className="lightbox-meta">
+            <strong>About</strong>
+          </div>
+          <div className="lightbox-actions">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="about-body">
+          <h2 className="about-title">Obsidian COS Images</h2>
+          <p className="about-lead">
+            Manage PicGo uploads on Tencent COS that are referenced by Obsidian Markdown notes.
+          </p>
+          <dl className="about-meta">
+            <div>
+              <dt>Version</dt>
+              <dd>v{APP_VERSION}</dd>
+            </div>
+            <div>
+              <dt>Author</dt>
+              <dd>{APP_AUTHOR}</dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              void Browser.OpenURL(APP_GITHUB_URL).catch(() => undefined);
+            }}
+          >
+            Open GitHub
+          </button>
+          <p className="about-repo muted" title={APP_GITHUB_URL}>
+            {APP_GITHUB_URL.replace(/^https:\/\//, '')}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
