@@ -39,6 +39,9 @@ type persistedSettings struct {
 	COSRegion      string   `json:"cosRegion,omitempty"`
 	COSPrefix      string   `json:"cosPrefix,omitempty"`
 	COSBaseURL     string   `json:"cosBaseURL,omitempty"`
+	BrowseBucket   string   `json:"browseCosBucket,omitempty"`
+	BrowseRegion   string   `json:"browseCosRegion,omitempty"`
+	BrowseBaseURL  string   `json:"browseCosBaseURL,omitempty"`
 	VaultPaths     []string `json:"vaultPaths,omitempty"`
 	ShowThumbnails bool     `json:"showThumbnails"`
 }
@@ -59,6 +62,9 @@ func loadRuntimeConfig() runtimeConfig {
 		firstNonEmpty(settings.COSBaseURL, os.Getenv("COS_BASE_URL")),
 		"/",
 	)
+	browseBucket := strings.TrimSpace(settings.BrowseBucket)
+	browseRegion := strings.TrimSpace(settings.BrowseRegion)
+	browseBaseURL := strings.TrimRight(strings.TrimSpace(settings.BrowseBaseURL), "/")
 
 	vaultPaths := settings.VaultPaths
 	if len(vaultPaths) == 0 {
@@ -69,23 +75,71 @@ func loadRuntimeConfig() runtimeConfig {
 
 	return runtimeConfig{
 		AppConfig: AppConfig{
-			COSBucket:       bucket,
-			COSRegion:       region,
-			COSPrefix:       prefix,
-			COSBaseURL:      baseURL,
-			VaultPaths:      vaultPaths,
-			VaultPathErrors: vaultPathErrors,
-			ShowThumbnails:  settings.ShowThumbnails,
-			SecretID:        secretID,
-			SecretIDSet:     secretID != "",
-			SecretKeySet:    secretKey != "",
+			COSBucket:        bucket,
+			COSRegion:        region,
+			COSPrefix:        prefix,
+			COSBaseURL:       baseURL,
+			BrowseCOSBucket:  browseBucket,
+			BrowseCOSRegion:  browseRegion,
+			BrowseCOSBaseURL: browseBaseURL,
+			VaultPaths:       vaultPaths,
+			VaultPathErrors:  vaultPathErrors,
+			ShowThumbnails:   settings.ShowThumbnails,
+			SecretID:         secretID,
+			SecretIDSet:      secretID != "",
+			SecretKeySet:     secretKey != "",
 		},
 		SecretID:  secretID,
 		SecretKey: secretKey,
 	}
 }
 
-// requireCOSEnv returns an error if required COS identity is missing.
+// loadBrowseRuntimeConfig builds COS identity for the Browse tab.
+// Reuses Vault SecretId/SecretKey; bucket/region/base URL come from Browse settings.
+func loadBrowseRuntimeConfig() (runtimeConfig, error) {
+	vault := loadRuntimeConfig()
+	if err := requireCOSSecrets(vault); err != nil {
+		return runtimeConfig{}, err
+	}
+	bucket := strings.TrimSpace(vault.BrowseCOSBucket)
+	region := strings.TrimSpace(vault.BrowseCOSRegion)
+	baseURL := strings.TrimRight(strings.TrimSpace(vault.BrowseCOSBaseURL), "/")
+	var missing []string
+	if bucket == "" {
+		missing = append(missing, "Browse Bucket")
+	}
+	if region == "" {
+		missing = append(missing, "Browse Region")
+	}
+	if baseURL == "" {
+		missing = append(missing, "Browse Base URL")
+	}
+	if len(missing) > 0 {
+		return runtimeConfig{}, fmt.Errorf(
+			"%w: set %s in Settings → Browse COS",
+			ErrMissingCredentials,
+			strings.Join(missing, ", "),
+		)
+	}
+	return runtimeConfig{
+		AppConfig: AppConfig{
+			COSBucket:        bucket,
+			COSRegion:        region,
+			COSPrefix:        "",
+			COSBaseURL:       baseURL,
+			BrowseCOSBucket:  bucket,
+			BrowseCOSRegion:  region,
+			BrowseCOSBaseURL: baseURL,
+			SecretID:         vault.SecretID,
+			SecretIDSet:      true,
+			SecretKeySet:     true,
+		},
+		SecretID:  vault.SecretID,
+		SecretKey: vault.SecretKey,
+	}, nil
+}
+
+// requireCOSEnv returns an error if required Vault COS identity is missing.
 func requireCOSEnv(cfg runtimeConfig) error {
 	var missing []string
 	if cfg.SecretID == "" {
@@ -106,7 +160,7 @@ func requireCOSEnv(cfg runtimeConfig) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: set %s in Settings (or .env for local dev)", ErrMissingCredentials, strings.Join(missing, ", "))
+	return fmt.Errorf("%w: set %s in Settings → Vault COS (or .env for local dev)", ErrMissingCredentials, strings.Join(missing, ", "))
 }
 
 // configFilePathOverride is used by tests; empty means use the real user config dir.
@@ -149,6 +203,9 @@ func loadPersistedSettings() (persistedSettings, error) {
 	settings.COSRegion = strings.TrimSpace(settings.COSRegion)
 	settings.COSPrefix = strings.TrimSpace(settings.COSPrefix)
 	settings.COSBaseURL = strings.TrimRight(strings.TrimSpace(settings.COSBaseURL), "/")
+	settings.BrowseBucket = strings.TrimSpace(settings.BrowseBucket)
+	settings.BrowseRegion = strings.TrimSpace(settings.BrowseRegion)
+	settings.BrowseBaseURL = strings.TrimRight(strings.TrimSpace(settings.BrowseBaseURL), "/")
 	return settings, nil
 }
 
@@ -160,6 +217,9 @@ func savePersistedSettings(settings persistedSettings) error {
 	settings.COSRegion = strings.TrimSpace(settings.COSRegion)
 	settings.COSPrefix = strings.TrimSpace(settings.COSPrefix)
 	settings.COSBaseURL = strings.TrimRight(strings.TrimSpace(settings.COSBaseURL), "/")
+	settings.BrowseBucket = strings.TrimSpace(settings.BrowseBucket)
+	settings.BrowseRegion = strings.TrimSpace(settings.BrowseRegion)
+	settings.BrowseBaseURL = strings.TrimRight(strings.TrimSpace(settings.BrowseBaseURL), "/")
 	path, err := configFilePath()
 	if err != nil {
 		return err
@@ -193,7 +253,22 @@ func saveCOSSettings(in COSSettings) error {
 	return savePersistedSettings(settings)
 }
 
-// resolveCOSIdentity builds a runtime COS identity from Settings form input.
+func saveBrowseCOSSettings(in BrowseCOSSettings) error {
+	cfg, err := resolveBrowseCOSIdentity(in)
+	if err != nil {
+		return err
+	}
+	settings, err := loadPersistedSettings()
+	if err != nil {
+		return err
+	}
+	settings.BrowseBucket = cfg.COSBucket
+	settings.BrowseRegion = cfg.COSRegion
+	settings.BrowseBaseURL = cfg.COSBaseURL
+	return savePersistedSettings(settings)
+}
+
+// resolveCOSIdentity builds a Vault COS identity from Settings form input.
 // Empty SecretKey keeps the previously saved (or env) key. Does not persist.
 func resolveCOSIdentity(in COSSettings) (runtimeConfig, error) {
 	secretID := strings.TrimSpace(in.SecretID)
@@ -251,6 +326,49 @@ func resolveCOSIdentity(in COSSettings) (runtimeConfig, error) {
 		},
 		SecretID:  secretID,
 		SecretKey: secretKey,
+	}, nil
+}
+
+// resolveBrowseCOSIdentity validates Browse form values (secrets come from Vault COS).
+func resolveBrowseCOSIdentity(in BrowseCOSSettings) (runtimeConfig, error) {
+	vault := loadRuntimeConfig()
+	if err := requireCOSSecrets(vault); err != nil {
+		return runtimeConfig{}, fmt.Errorf("Browse COS needs Vault SecretId/SecretKey first: %w", err)
+	}
+	bucket := strings.TrimSpace(in.COSBucket)
+	region := strings.TrimSpace(in.COSRegion)
+	baseURL := strings.TrimRight(strings.TrimSpace(in.COSBaseURL), "/")
+	var missing []string
+	if bucket == "" {
+		missing = append(missing, "Bucket")
+	}
+	if region == "" {
+		missing = append(missing, "Region")
+	}
+	if baseURL == "" {
+		missing = append(missing, "Base URL")
+	}
+	if len(missing) > 0 {
+		return runtimeConfig{}, fmt.Errorf("missing Browse COS fields: %s", strings.Join(missing, ", "))
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return runtimeConfig{}, fmt.Errorf("Browse Base URL must be an absolute http(s) URL")
+	}
+	return runtimeConfig{
+		AppConfig: AppConfig{
+			COSBucket:        bucket,
+			COSRegion:        region,
+			COSBaseURL:       baseURL,
+			BrowseCOSBucket:  bucket,
+			BrowseCOSRegion:  region,
+			BrowseCOSBaseURL: baseURL,
+			SecretID:         vault.SecretID,
+			SecretIDSet:      true,
+			SecretKeySet:     true,
+		},
+		SecretID:  vault.SecretID,
+		SecretKey: vault.SecretKey,
 	}, nil
 }
 

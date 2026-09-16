@@ -5,6 +5,9 @@
  * AppConfig is local settings for the UI (SecretKey is never included).
  */
 export interface AppConfig {
+    /**
+     * Vault / Obsidian COS (Images, Orphans, vault URL matching).
+     */
     "cosBucket": string;
     "cosRegion": string;
 
@@ -22,6 +25,13 @@ export interface AppConfig {
     "showThumbnails": boolean;
 
     /**
+     * Browse COS is a separate bucket for the Browse tab (preview only; no vault).
+     */
+    "browseCosBucket": string;
+    "browseCosRegion": string;
+    "browseCosBaseURL": string;
+
+    /**
      * SecretID is returned so Settings can prefill; SecretKey is never returned.
      */
     "secretId": string;
@@ -30,7 +40,42 @@ export interface AppConfig {
 }
 
 /**
- * COSSettings is the writable COS identity from the Settings UI.
+ * BrowseCOSSettings is the writable Browse-tab bucket (shares SecretId/Key with Vault COS).
+ */
+export interface BrowseCOSSettings {
+    "cosBucket": string;
+    "cosRegion": string;
+    "cosBaseURL": string;
+}
+
+/**
+ * BrowseListing is one folder level under a COS prefix (Delimiter=/).
+ */
+export interface BrowseListing {
+    "prefix": string;
+
+    /**
+     * common prefixes (full keys, trailing /)
+     */
+    "folders": string[] | null;
+
+    /**
+     * Objects are all non-directory keys in this folder (images and other files).
+     */
+    "objects": ImageObject[] | null;
+}
+
+/**
+ * COSBucketInfo is one bucket from the account-level List Buckets API.
+ */
+export interface COSBucketInfo {
+    "name": string;
+    "region": string;
+    "creationDate"?: string;
+}
+
+/**
+ * COSSettings is the writable Vault/Obsidian COS identity from the Settings UI.
  * Empty SecretKey means leave the existing stored key unchanged.
  */
 export interface COSSettings {

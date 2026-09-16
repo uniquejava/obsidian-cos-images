@@ -32,6 +32,124 @@ var (
 	}
 )
 
+// ListBuckets returns all buckets owned by the configured SecretId (account-level API).
+func (s *COSService) ListBuckets() ([]COSBucketInfo, error) {
+	cfg := loadRuntimeConfig()
+	if err := requireCOSSecrets(cfg); err != nil {
+		return nil, err
+	}
+	client := newCOSServiceClient(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	out := make([]COSBucketInfo, 0, 32)
+	var marker string
+	for {
+		opt := &cos.ServiceGetOptions{Marker: marker}
+		result, _, err := client.Service.Get(ctx, opt)
+		if err != nil {
+			return nil, fmt.Errorf("list COS buckets: %w", err)
+		}
+		if result == nil {
+			break
+		}
+		for _, b := range result.Buckets {
+			name := strings.TrimSpace(b.Name)
+			if name == "" {
+				continue
+			}
+			out = append(out, COSBucketInfo{
+				Name:         name,
+				Region:       strings.TrimSpace(b.Region),
+				CreationDate: strings.TrimSpace(b.CreationDate),
+			})
+		}
+		if !result.IsTruncated {
+			break
+		}
+		marker = result.NextMarker
+		if marker == "" {
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// Browse lists one folder level under prefix (Delimiter=/). prefix may be "" (bucket root)
+// or a deep path like "static/img/shop/app/". Returns all objects in that folder (not only images).
+// Uses Browse COS settings (separate from Vault/Obsidian bucket).
+func (s *COSService) Browse(prefix string) (*BrowseListing, error) {
+	cfg, err := loadBrowseRuntimeConfig()
+	if err != nil {
+		return nil, err
+	}
+	prefix = normalizeBrowsePrefix(prefix)
+
+	client, err := newCOSClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := context.Background()
+	opt := &cos.BucketGetOptions{
+		Prefix:    prefix,
+		Delimiter: "/",
+		MaxKeys:   1000,
+	}
+
+	folderSet := make(map[string]struct{})
+	objects := make([]ImageObject, 0, 256)
+	var marker string
+	for {
+		opt.Marker = marker
+		result, _, err := client.Bucket.Get(ctx, opt)
+		if err != nil {
+			return nil, fmt.Errorf("browse COS prefix %q: %w", prefix, err)
+		}
+		for _, p := range result.CommonPrefixes {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			folderSet[p] = struct{}{}
+		}
+		for _, obj := range result.Contents {
+			if obj.Key == "" || strings.HasSuffix(obj.Key, "/") {
+				continue
+			}
+			objects = append(objects, imageObjectFromCOS(cfg.COSBaseURL, obj))
+		}
+		if !result.IsTruncated {
+			break
+		}
+		marker = result.NextMarker
+		if marker == "" && len(result.Contents) > 0 {
+			marker = result.Contents[len(result.Contents)-1].Key
+		}
+		if marker == "" {
+			break
+		}
+	}
+
+	folders := make([]string, 0, len(folderSet))
+	for p := range folderSet {
+		folders = append(folders, p)
+	}
+	sort.Strings(folders)
+	sort.Slice(objects, func(i, j int) bool {
+		return objects[i].Key < objects[j].Key
+	})
+
+	return &BrowseListing{
+		Prefix:  prefix,
+		Folders: folders,
+		Objects: objects,
+	}, nil
+}
+
 // ListImages returns objects under the configured prefix, newest upload first.
 func (s *COSService) ListImages() ([]ImageObject, error) {
 	cfg := loadRuntimeConfig()
@@ -63,18 +181,7 @@ func (s *COSService) ListImages() ([]ImageObject, error) {
 			if obj.Key == "" || strings.HasSuffix(obj.Key, "/") {
 				continue
 			}
-			lastMod := parseCOSLastModified(obj.LastModified)
-			uploadTime := parseUploadTimeFromKey(obj.Key)
-			if uploadTime.IsZero() {
-				uploadTime = lastMod
-			}
-			images = append(images, ImageObject{
-				Key:          obj.Key,
-				URL:          joinCOSURL(cfg.COSBaseURL, obj.Key),
-				Size:         obj.Size,
-				LastModified: lastMod,
-				UploadTime:   uploadTime,
-			})
+			images = append(images, imageObjectFromCOS(cfg.COSBaseURL, obj))
 		}
 
 		if !result.IsTruncated {
@@ -154,8 +261,25 @@ func (s *COSService) DeleteImages(keys []string) error {
 }
 
 // PreviewCompress downloads the object, compresses in memory, and returns a
-// side-by-side preview payload. It does not upload.
+// side-by-side preview payload. It does not upload. Uses Vault COS.
 func (s *COSService) PreviewCompress(key string, opts CompressOptions) (CompressPreview, error) {
+	cfg := loadRuntimeConfig()
+	if err := requireCOSEnv(cfg); err != nil {
+		return CompressPreview{}, err
+	}
+	return previewCompressWith(cfg, key, opts)
+}
+
+// BrowsePreviewCompress is PreviewCompress against the Browse COS bucket.
+func (s *COSService) BrowsePreviewCompress(key string, opts CompressOptions) (CompressPreview, error) {
+	cfg, err := loadBrowseRuntimeConfig()
+	if err != nil {
+		return CompressPreview{}, err
+	}
+	return previewCompressWith(cfg, key, opts)
+}
+
+func previewCompressWith(cfg runtimeConfig, key string, opts CompressOptions) (CompressPreview, error) {
 	key = strings.TrimSpace(strings.TrimPrefix(key, "/"))
 	if key == "" {
 		return CompressPreview{}, fmt.Errorf("empty key")
@@ -166,10 +290,6 @@ func (s *COSService) PreviewCompress(key string, opts CompressOptions) (Compress
 		return CompressPreview{}, err
 	}
 
-	cfg := loadRuntimeConfig()
-	if err := requireCOSEnv(cfg); err != nil {
-		return CompressPreview{}, err
-	}
 	client, err := newCOSClient(cfg)
 	if err != nil {
 		return CompressPreview{}, err
@@ -207,7 +327,25 @@ func (s *COSService) PreviewCompress(key string, opts CompressOptions) (Compress
 
 // ReplaceWithCompressed recompresses the object and overwrites the same COS key.
 // Markdown URLs stay unchanged. Refuses to upload when compressed is not smaller.
+// Uses Vault COS.
 func (s *COSService) ReplaceWithCompressed(key string, opts CompressOptions) (ImageObject, error) {
+	cfg := loadRuntimeConfig()
+	if err := requireCOSEnv(cfg); err != nil {
+		return ImageObject{}, err
+	}
+	return replaceWithCompressedWith(cfg, key, opts)
+}
+
+// BrowseReplaceWithCompressed is ReplaceWithCompressed against the Browse COS bucket.
+func (s *COSService) BrowseReplaceWithCompressed(key string, opts CompressOptions) (ImageObject, error) {
+	cfg, err := loadBrowseRuntimeConfig()
+	if err != nil {
+		return ImageObject{}, err
+	}
+	return replaceWithCompressedWith(cfg, key, opts)
+}
+
+func replaceWithCompressedWith(cfg runtimeConfig, key string, opts CompressOptions) (ImageObject, error) {
 	key = strings.TrimSpace(strings.TrimPrefix(key, "/"))
 	if key == "" {
 		return ImageObject{}, fmt.Errorf("empty key")
@@ -218,10 +356,6 @@ func (s *COSService) ReplaceWithCompressed(key string, opts CompressOptions) (Im
 		return ImageObject{}, err
 	}
 
-	cfg := loadRuntimeConfig()
-	if err := requireCOSEnv(cfg); err != nil {
-		return ImageObject{}, err
-	}
 	client, err := newCOSClient(cfg)
 	if err != nil {
 		return ImageObject{}, err
@@ -253,7 +387,7 @@ func (s *COSService) ReplaceWithCompressed(key string, opts CompressOptions) (Im
 		return ImageObject{}, fmt.Errorf("upload compressed object: %w", err)
 	}
 
-	_ = invalidateThumbnail(key)
+	_ = invalidateThumbnail(cfg.COSBucket, key)
 
 	now := time.Now()
 	uploadTime := parseUploadTimeFromKey(key)
@@ -335,12 +469,56 @@ func (s *COSService) TestConnection(settings COSSettings) (string, error) {
 	), nil
 }
 
+// TestBrowseConnection probes the Browse COS form values (does not save).
+func (s *COSService) TestBrowseConnection(settings BrowseCOSSettings) (string, error) {
+	cfg, err := resolveBrowseCOSIdentity(settings)
+	if err != nil {
+		return "", err
+	}
+	client, err := newCOSClient(cfg)
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := client.Bucket.Head(ctx); err != nil {
+		return "", fmt.Errorf("browse bucket access failed (check Bucket, Region, and Vault SecretId/Key): %w", err)
+	}
+	return fmt.Sprintf(
+		"OK — browse bucket %s reachable. Base URL host: %s",
+		cfg.COSBucket, hostOf(cfg.COSBaseURL),
+	), nil
+}
+
 func hostOf(baseURL string) string {
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Host == "" {
 		return baseURL
 	}
 	return u.Host
+}
+
+func requireCOSSecrets(cfg runtimeConfig) error {
+	var missing []string
+	if cfg.SecretID == "" {
+		missing = append(missing, "SecretId")
+	}
+	if cfg.SecretKey == "" {
+		missing = append(missing, "SecretKey")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: set %s in Settings (or .env for local dev)", ErrMissingCredentials, strings.Join(missing, ", "))
+}
+
+func newCOSServiceClient(cfg runtimeConfig) *cos.Client {
+	return cos.NewClient(nil, &http.Client{
+		Transport: &cos.AuthorizationTransport{
+			SecretID:  cfg.SecretID,
+			SecretKey: cfg.SecretKey,
+		},
+	})
 }
 
 func newCOSClient(cfg runtimeConfig) (*cos.Client, error) {
@@ -354,6 +532,51 @@ func newCOSClient(cfg runtimeConfig) (*cos.Client, error) {
 			SecretKey: cfg.SecretKey,
 		},
 	}), nil
+}
+
+func defaultCOSBaseURL(bucket, region string) string {
+	bucket = strings.TrimSpace(bucket)
+	region = strings.TrimSpace(region)
+	if bucket == "" || region == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://%s.cos.%s.myqcloud.com", bucket, region)
+}
+
+func normalizeBrowsePrefix(prefix string) string {
+	prefix = strings.TrimSpace(strings.TrimPrefix(prefix, "/"))
+	if prefix == "" {
+		return ""
+	}
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	return prefix
+}
+
+func isImageObjectKey(key string) bool {
+	ext := strings.ToLower(path.Ext(key))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".heic", ".avif", ".tif", ".tiff":
+		return true
+	default:
+		return false
+	}
+}
+
+func imageObjectFromCOS(baseURL string, obj cos.Object) ImageObject {
+	lastMod := parseCOSLastModified(obj.LastModified)
+	uploadTime := parseUploadTimeFromKey(obj.Key)
+	if uploadTime.IsZero() {
+		uploadTime = lastMod
+	}
+	return ImageObject{
+		Key:          obj.Key,
+		URL:          joinCOSURL(baseURL, obj.Key),
+		Size:         obj.Size,
+		LastModified: lastMod,
+		UploadTime:   uploadTime,
+	}
 }
 
 func joinCOSURL(baseURL, key string) string {

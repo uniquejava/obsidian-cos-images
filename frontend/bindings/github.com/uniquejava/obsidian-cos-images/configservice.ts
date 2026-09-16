@@ -30,7 +30,14 @@ export function GetConfig(): $CancellablePromise<$models.AppConfig> {
 }
 
 /**
- * SaveCOSSettings persists COS identity for packaged installs (Settings UI).
+ * SaveBrowseCOSSettings persists the Browse-tab bucket (shares SecretId/Key with Vault COS).
+ */
+export function SaveBrowseCOSSettings(settings: $models.BrowseCOSSettings): $CancellablePromise<void> {
+    return $Call.ByID(2809781162, settings);
+}
+
+/**
+ * SaveCOSSettings persists Vault/Obsidian COS identity for packaged installs (Settings UI).
  * Empty SecretKey keeps the previously saved key.
  */
 export function SaveCOSSettings(settings: $models.COSSettings): $CancellablePromise<void> {

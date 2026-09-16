@@ -17,11 +17,19 @@ func (s *ConfigService) GetConfig() (AppConfig, error) {
 	return loadRuntimeConfig().AppConfig, nil
 }
 
-// SaveCOSSettings persists COS identity for packaged installs (Settings UI).
+// SaveCOSSettings persists Vault/Obsidian COS identity for packaged installs (Settings UI).
 // Empty SecretKey keeps the previously saved key.
 func (s *ConfigService) SaveCOSSettings(settings COSSettings) error {
 	if err := saveCOSSettings(settings); err != nil {
 		return fmt.Errorf("save COS settings: %w", err)
+	}
+	return nil
+}
+
+// SaveBrowseCOSSettings persists the Browse-tab bucket (shares SecretId/Key with Vault COS).
+func (s *ConfigService) SaveBrowseCOSSettings(settings BrowseCOSSettings) error {
+	if err := saveBrowseCOSSettings(settings); err != nil {
+		return fmt.Errorf("save Browse COS settings: %w", err)
 	}
 	return nil
 }

@@ -15,6 +15,36 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * Browse lists one folder level under prefix (Delimiter=/). prefix may be "" (bucket root)
+ * or a deep path like "static/img/shop/app/". Returns all objects in that folder (not only images).
+ * Uses Browse COS settings (separate from Vault/Obsidian bucket).
+ */
+export function Browse(prefix: string): $CancellablePromise<$models.BrowseListing | null> {
+    return $Call.ByID(4003325252, prefix);
+}
+
+/**
+ * BrowseGetThumbnail is GetThumbnail against the Browse COS bucket.
+ */
+export function BrowseGetThumbnail(key: string): $CancellablePromise<string> {
+    return $Call.ByID(3315358684, key);
+}
+
+/**
+ * BrowsePreviewCompress is PreviewCompress against the Browse COS bucket.
+ */
+export function BrowsePreviewCompress(key: string, opts: $models.CompressOptions): $CancellablePromise<$models.CompressPreview> {
+    return $Call.ByID(2107975164, key, opts);
+}
+
+/**
+ * BrowseReplaceWithCompressed is ReplaceWithCompressed against the Browse COS bucket.
+ */
+export function BrowseReplaceWithCompressed(key: string, opts: $models.CompressOptions): $CancellablePromise<$models.ImageObject> {
+    return $Call.ByID(945943785, key, opts);
+}
+
+/**
  * ClearThumbnailCache deletes locally cached thumbnails.
  */
 export function ClearThumbnailCache(): $CancellablePromise<void> {
@@ -29,11 +59,18 @@ export function DeleteImages(keys: string[] | null): $CancellablePromise<void> {
 }
 
 /**
- * GetThumbnail returns a base64-encoded thumbnail for the object key.
+ * GetThumbnail returns a base64-encoded thumbnail for the object key (Vault COS).
  * Results are cached under the user cache directory so repeat views avoid COS traffic.
  */
 export function GetThumbnail(key: string): $CancellablePromise<string> {
     return $Call.ByID(1171756002, key);
+}
+
+/**
+ * ListBuckets returns all buckets owned by the configured SecretId (account-level API).
+ */
+export function ListBuckets(): $CancellablePromise<$models.COSBucketInfo[] | null> {
+    return $Call.ByID(1324569725);
 }
 
 /**
@@ -45,7 +82,7 @@ export function ListImages(): $CancellablePromise<$models.ImageObject[] | null> 
 
 /**
  * PreviewCompress downloads the object, compresses in memory, and returns a
- * side-by-side preview payload. It does not upload.
+ * side-by-side preview payload. It does not upload. Uses Vault COS.
  */
 export function PreviewCompress(key: string, opts: $models.CompressOptions): $CancellablePromise<$models.CompressPreview> {
     return $Call.ByID(3936105570, key, opts);
@@ -54,9 +91,17 @@ export function PreviewCompress(key: string, opts: $models.CompressOptions): $Ca
 /**
  * ReplaceWithCompressed recompresses the object and overwrites the same COS key.
  * Markdown URLs stay unchanged. Refuses to upload when compressed is not smaller.
+ * Uses Vault COS.
  */
 export function ReplaceWithCompressed(key: string, opts: $models.CompressOptions): $CancellablePromise<$models.ImageObject> {
     return $Call.ByID(2175243375, key, opts);
+}
+
+/**
+ * TestBrowseConnection probes the Browse COS form values (does not save).
+ */
+export function TestBrowseConnection(settings: $models.BrowseCOSSettings): $CancellablePromise<string> {
+    return $Call.ByID(1065099180, settings);
 }
 
 /**

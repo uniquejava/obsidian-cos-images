@@ -17,14 +17,31 @@ import (
 
 const thumbQuery = "imageMogr2/thumbnail/64x"
 
-// GetThumbnail returns a base64-encoded thumbnail for the object key.
+// GetThumbnail returns a base64-encoded thumbnail for the object key (Vault COS).
 // Results are cached under the user cache directory so repeat views avoid COS traffic.
 func (s *COSService) GetThumbnail(key string) (string, error) {
+	cfg := loadRuntimeConfig()
+	if err := requireCOSEnv(cfg); err != nil {
+		return "", err
+	}
+	return thumbnailBase64(cfg, key)
+}
+
+// BrowseGetThumbnail is GetThumbnail against the Browse COS bucket.
+func (s *COSService) BrowseGetThumbnail(key string) (string, error) {
+	cfg, err := loadBrowseRuntimeConfig()
+	if err != nil {
+		return "", err
+	}
+	return thumbnailBase64(cfg, key)
+}
+
+func thumbnailBase64(cfg runtimeConfig, key string) (string, error) {
 	key = strings.TrimSpace(strings.TrimPrefix(key, "/"))
 	if key == "" {
 		return "", fmt.Errorf("empty key")
 	}
-	data, err := getOrFetchThumbnail(key)
+	data, err := getOrFetchThumbnail(cfg, key)
 	if err != nil {
 		return "", err
 	}
@@ -43,8 +60,8 @@ func (s *COSService) ClearThumbnailCache() error {
 	return os.MkdirAll(dir, 0o755)
 }
 
-func invalidateThumbnail(key string) error {
-	path, err := thumbnailCachePath(key)
+func invalidateThumbnail(bucket, key string) error {
+	path, err := thumbnailCachePath(bucket, key)
 	if err != nil {
 		return err
 	}
@@ -65,18 +82,18 @@ func thumbnailCacheDir() (string, error) {
 	return filepath.Join(root, appConfigDirName, "thumbs"), nil
 }
 
-func thumbnailCachePath(key string) (string, error) {
+func thumbnailCachePath(bucket, key string) (string, error) {
 	dir, err := thumbnailCacheDir()
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte(key))
+	sum := sha256.Sum256([]byte(bucket + "\n" + key))
 	name := hex.EncodeToString(sum[:]) + ".img"
 	return filepath.Join(dir, name), nil
 }
 
-func getOrFetchThumbnail(key string) ([]byte, error) {
-	path, err := thumbnailCachePath(key)
+func getOrFetchThumbnail(cfg runtimeConfig, key string) ([]byte, error) {
+	path, err := thumbnailCachePath(cfg.COSBucket, key)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +101,7 @@ func getOrFetchThumbnail(key string) ([]byte, error) {
 		return data, nil
 	}
 
-	data, err := fetchThumbnailBytes(key)
+	data, err := fetchThumbnailBytes(cfg, key)
 	if err != nil {
 		return nil, err
 	}
@@ -95,12 +112,7 @@ func getOrFetchThumbnail(key string) ([]byte, error) {
 	return data, nil
 }
 
-func fetchThumbnailBytes(key string) ([]byte, error) {
-	cfg := loadRuntimeConfig()
-	if err := requireCOSEnv(cfg); err != nil {
-		return nil, err
-	}
-
+func fetchThumbnailBytes(cfg runtimeConfig, key string) ([]byte, error) {
 	rawURL := joinCOSURL(cfg.COSBaseURL, key)
 	sep := "?"
 	if strings.Contains(rawURL, "?") {

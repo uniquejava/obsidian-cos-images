@@ -14,6 +14,9 @@ export {
 
 export type {
     AppConfig,
+    BrowseCOSSettings,
+    BrowseListing,
+    COSBucketInfo,
     COSSettings,
     CompressOptions,
     CompressPreview,

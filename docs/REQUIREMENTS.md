@@ -24,7 +24,6 @@ Desktop app (Go + **Wails v3**) to manage images stored on **one Tencent Cloud C
 | Object prefix | Yes (default `obsidian/`) | `COS_PREFIX` |
 | Public / virtual-host base URL | Yes | `COS_BASE_URL` |
 | Vault roots to scan | Yes | `VAULT_PATHS` |
-| Show thumbnails | Yes (default off) | — |
 
 Typical PicGo key pattern: `{prefix}YYYYMMDDHHMMSS.png` (sometimes millis / URL-encoded names).
 
@@ -44,8 +43,9 @@ Ignore non-configured hosts for orphan logic.
 - Sort by **upload time** (prefer timestamp in object key; else `LastModified`).
 - Show size, upload time, key, public URL; optional preview.
 - Filters: size, upload year (one year or all), note title/keyword (fuzzy); page size (20 / 50 / 200 / 1000 / 2000 / all).
-- Browse-only on Images; COS delete lives under Orphans.
-- Thumbnails **default off** (Settings); local cache when enabled.
+- Browse-only on Obsidian → Images; COS delete lives under Orphans.
+- Sidebar: **Obsidian** (Images / Orphans) and **COS** (Browse); Settings global.
+- **COS → Browse**: file-manager style folder navigation (Delimiter=/); lists **all** objects in the current prefix (not only images); **List** (default) and **Thumbnails** grid toggle (session-only). Grid thumbs use `BrowseGetThumbnail` + local disk/memory cache; non-images show an extension badge. Settings can clear the local thumb cache.
 - Lightweight **toast** notifications for actions (success / Test connection) and sticky errors.
 
 ### 2. Reference mapping
@@ -96,12 +96,26 @@ For large images already on COS (often >500 KB because PicGo compress was not us
 ## Architecture
 
 ```
-ConfigService   — GetConfig, SaveCOSSettings, SaveVaultPaths, SaveShowThumbnails, ConfigFilePath
-COSService      — ListImages, DeleteImages, TestConnection, GetThumbnail, ClearThumbnailCache,
-                  PreviewCompress, ReplaceWithCompressed
+ConfigService   — GetConfig, SaveCOSSettings, SaveBrowseCOSSettings, SaveVaultPaths, ConfigFilePath
+COSService      — ListImages, ListBuckets, Browse, DeleteImages, TestConnection, TestBrowseConnection,
+                  GetThumbnail, BrowseGetThumbnail, ClearThumbnailCache,
+                  PreviewCompress, BrowsePreviewCompress, ReplaceWithCompressed, BrowseReplaceWithCompressed
 VaultService    — ScanReferences, FindNotesUsing, ReadNote  (+ event vault:scan)
 CleanupService  — ListOrphans, ExportOrphans
 ```
+
+### Dual workspace UI
+
+- Sidebar primary sections: **Obsidian** (Images, Orphans) and **COS** (Browse).
+- **Settings** is global (footer): Vault COS + Browse COS + thumb cache clear + vault paths.
+- **COS → Browse**: unified directory (folders + all objects); List (default) / Thumbnails grid; grid thumbs cached locally and independent of Settings.
+- Footer meta: vault scan stats under Obsidian; Browse bucket name under COS.
+
+### Dual COS configs
+
+- **Vault COS** (fixed): Images / Orphans / Markdown host matching. Prefix typically `obsidian/`.
+- **Browse COS** (separate): COS → Browse only. Shares SecretId/Key with Vault; own Bucket / Region / Base URL.
+- Changing Browse does **not** change Vault. List buckets fills the Browse form.
 
 ## Implementation phases
 
@@ -123,7 +137,7 @@ CleanupService  — ListOrphans, ExportOrphans
 - [x] Vault scan for configured host only.
 - [x] Orphans exclude images still referenced in any configured vault.
 - [x] No secrets or personal COS/path defaults in git; `.env.example` is placeholders only.
-- [x] Thumbnails default off; cached locally when enabled.
+- [x] Browse Thumbnails grid caches locally; Settings can clear the cache.
 - [x] All COS + vault settings editable in Settings UI and persisted locally.
 - [x] Fresh install works without a `.env` file after Settings save.
 - [x] Filter images by min size (incl. ≥500 KB preset).

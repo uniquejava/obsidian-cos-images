@@ -18,8 +18,10 @@ Stack: **Wails v3** (`v3.0.0-beta.6`) + React + TypeScript + Vite.
 | Vault Markdown scan | Done |
 | Orphans + CSV/JSON export | Done |
 | Filters | Done — Min KB / **≥500 KB**, upload **year** (one or all), note title/keyword fuzzy, page size 20–2000 / all |
+| Browse (vault-free) | Done — **COS** workspace → Browse; separate Browse COS config; unified folder+objects listing; **List / Thumbnails** views (default List; grid thumbs via local cache) |
+| Dual workspace nav | Done — sidebar **Obsidian** (Images / Orphans) + **COS** (Browse); Settings global |
 | Recompress / same-key replace | Done (JPEG quality; PNG via **pngquant**/oxipng TinyPNG-style) |
-| Thumbnails | Done; **default OFF**; local disk cache |
+| Thumbnails | Done — Browse **Thumbnails** grid only; local disk cache; Settings clear-cache |
 | Config | **Settings UI** (persisted) + optional `.env` fallback for empty fields |
 | macOS package | `wails3 package` → `bin/obsidian-cos-images.app` (~13 MB arm64) |
 
@@ -65,7 +67,7 @@ wails3 task dev
 ```
 
 Required identity (Settings or `.env`): SecretId, SecretKey, Bucket, Region, Base URL.  
-Optional: Prefix (defaults to `obsidian/`), vault paths, thumbnails.
+Optional: Prefix (defaults to `obsidian/`), vault paths.
 
 ```bash
 wails3 generate bindings -ts -i
@@ -87,7 +89,7 @@ export ALL_PROXY=http://127.0.0.1:7897
 ## Cost note (COS traffic)
 
 - List / delete / vault scan / export ≈ no object download traffic.
-- Thumbnails ON → first fetch per key may egress; then local cache. Default OFF.
+- COS Browse **Thumbnails** grid → first fetch per image key may egress via `BrowseGetThumbnail`; then local disk cache (+ session memory). List mode fetches no thumbs.
 - Recompress preview / replace downloads the full object once per action (then uploads compressed bytes on confirm).
 - **PNG recompress** requires local `pngquant` (`brew install pngquant`; optional `oxipng`). Not bundled yet.
 - Do not load thumbs via raw public `<img src=cos-url>` in the UI.

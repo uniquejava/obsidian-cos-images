@@ -192,7 +192,8 @@ func TestThumbnailCacheRoundTrip(t *testing.T) {
 	t.Cleanup(func() { thumbnailCacheDirOverride = "" })
 
 	key := "obsidian/demo.png"
-	path, err := thumbnailCachePath(key)
+	cfg := runtimeConfig{AppConfig: AppConfig{COSBucket: "demo-bucket"}}
+	path, err := thumbnailCachePath(cfg.COSBucket, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,12 +201,55 @@ func TestThumbnailCacheRoundTrip(t *testing.T) {
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := getOrFetchThumbnail(key)
+	got, err := getOrFetchThumbnail(cfg, key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != string(payload) {
 		t.Fatalf("cache miss? got %q", got)
+	}
+}
+
+func TestSaveBrowseCOSSettingsIndependentOfVault(t *testing.T) {
+	tmp := t.TempDir()
+	configFilePathOverride = filepath.Join(tmp, "config.json")
+	t.Cleanup(func() { configFilePathOverride = "" })
+
+	if err := saveCOSSettings(COSSettings{
+		SecretID:   "AKID-test",
+		SecretKey:  "secret-value",
+		COSBucket:  "vault-bucket-123",
+		COSRegion:  "ap-shanghai",
+		COSPrefix:  "obsidian/",
+		COSBaseURL: "https://vault-bucket-123.cos.ap-shanghai.myqcloud.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveBrowseCOSSettings(BrowseCOSSettings{
+		COSBucket:  "browse-bucket-456",
+		COSRegion:  "ap-guangzhou",
+		COSBaseURL: "https://browse-bucket-456.cos.ap-guangzhou.myqcloud.com",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := loadRuntimeConfig()
+	if cfg.COSBucket != "vault-bucket-123" {
+		t.Fatalf("vault bucket changed: %q", cfg.COSBucket)
+	}
+	if cfg.BrowseCOSBucket != "browse-bucket-456" || cfg.BrowseCOSRegion != "ap-guangzhou" {
+		t.Fatalf("browse: %q %q", cfg.BrowseCOSBucket, cfg.BrowseCOSRegion)
+	}
+
+	browse, err := loadBrowseRuntimeConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if browse.COSBucket != "browse-bucket-456" {
+		t.Fatalf("browse runtime bucket = %q", browse.COSBucket)
+	}
+	if browse.SecretKey != "secret-value" {
+		t.Fatal("browse should reuse vault secret")
 	}
 }
 
